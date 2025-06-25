@@ -1,62 +1,161 @@
-// src/pages/account/UserDashboardLayout.jsx
-
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useUser } from "../../context/UserContext";
 
-// Componente para los enlaces del menú, para no repetir código
-const MenuLink = ({ to, children }) => {
-  // NavLink nos da acceso a la variable 'isActive' para saber si el enlace es el actual
-  const activeClassName = "bg-primary text-white";
-  const inactiveClassName = "text-gray-600 hover:bg-gray-200 hover:text-gray-800";
-
+// Componente para los enlaces del menú mejorado
+const MenuLink = ({ to, children, icon, description }) => {
+  const location = useLocation();
+  const isActive = location.pathname === to || (to === "/mi-cuenta/perfil" && location.pathname === "/mi-cuenta");
+  
   return (
     <NavLink 
       to={to}
-      // La prop 'end' es importante para que el NavLink de "/" no se quede activo siempre
-      end 
-      className={({ isActive }) => 
-        `block w-full text-left px-4 py-2 rounded-md transition-colors duration-200 ${isActive ? activeClassName : inactiveClassName}`
-      }
+      className={`block w-full text-left p-4 rounded-xl transition-all duration-200 group ${
+        isActive 
+          ? 'bg-primary text-white shadow-lg transform scale-[1.02]' 
+          : 'text-gray-700 hover:bg-gray-100 hover:text-primary'
+      }`}
     >
-      {children}
+      <div className="flex items-center gap-3">
+        <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${
+          isActive ? 'bg-white/20' : 'bg-gray-100 group-hover:bg-primary/10'
+        }`}>
+          <span className={`text-lg ${isActive ? 'text-white' : 'text-gray-600 group-hover:text-primary'}`}>
+            {icon}
+          </span>
+        </div>
+        <div>
+          <div className={`font-semibold ${isActive ? 'text-white' : 'text-gray-800'}`}>
+            {children}
+          </div>
+          <div className={`text-sm ${isActive ? 'text-white/80' : 'text-gray-500'}`}>
+            {description}
+          </div>
+        </div>
+      </div>
     </NavLink>
   );
 };
 
-
 const UserDashboardLayout = () => {
   const { user } = useUser();
+  const location = useLocation();
 
-  console.log("UserDashboardLayout: Renderizando layout para el usuario:", user?.email);
+  // Determinar el título de la página actual
+  const getPageTitle = () => {
+    if (location.pathname.includes('/direcciones')) return 'Mis Direcciones';
+    if (location.pathname.includes('/pedidos')) return 'Mis Pedidos';
+    return 'Mi Perfil';
+  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+    <div className="min-h-screen bg-lightpink">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* --- Columna de Navegación (Sidebar) --- */}
-        <aside className="md:col-span-1">
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-center mb-4 border-b pb-4">
-              <h2 className="font-bold text-lg text-primary truncate">{user?.full_name || user?.email}</h2>
-              <p className="text-sm text-gray-500 capitalize">{user?.role}</p>
+        {/* Header del Dashboard */}
+        <div className="mb-8">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {/* Avatar */}
+                <div className="w-16 h-16 bg-gradient-to-br from-primary to-red-600 rounded-xl flex items-center justify-center text-white text-xl font-bold">
+                  {user?.full_name ? user.full_name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || '?'}
+                </div>
+                
+                {/* Info del Usuario */}
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    ¡Hola, {user?.full_name?.split(' ')[0] || 'Usuario'}! 👋
+                  </h1>
+                  <p className="text-gray-600 mt-1">
+                    {user?.email} • <span className="capitalize font-medium text-primary">{user?.role}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Badge de rol */}
+              <div className={`px-4 py-2 rounded-full text-sm font-medium ${
+                user?.role === 'admin' 
+                  ? 'bg-purple-100 text-purple-800' 
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                {user?.role === 'admin' ? '👑 Administrador' : '🛍️ Cliente'}
+              </div>
             </div>
-            <nav className="space-y-1">
-              <MenuLink to="/mi-cuenta/perfil">Mi Perfil</MenuLink>
-              <MenuLink to="/mi-cuenta/direcciones">Mis Direcciones</MenuLink>
-              <MenuLink to="/mi-cuenta/pedidos">Mis Pedidos</MenuLink>
-            </nav>
           </div>
-        </aside>
+        </div>
 
-        {/* --- Área de Contenido Principal --- */}
-        <main className="md:col-span-3">
-          <div className="bg-white p-6 rounded-lg shadow min-h-[300px]">
-            {/* Outlet es el componente mágico de React Router que renderiza
-                la ruta hija activa (ProfileSettings, AddressManager, etc.) */}
-            <Outlet />
-          </div>
-        </main>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          
+          {/* Sidebar de Navegación */}
+          <aside className="lg:col-span-1">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">Mi Cuenta</h2>
+              
+              <nav className="space-y-3">
+                <MenuLink 
+                  to="/mi-cuenta/perfil" 
+                  icon="👤"
+                  description="Información personal"
+                >
+                  Mi Perfil
+                </MenuLink>
+                
+                <MenuLink 
+                  to="/mi-cuenta/direcciones" 
+                  icon="🏠"
+                  description="Direcciones de envío"
+                >
+                  Mis Direcciones
+                </MenuLink>
+                
+                <MenuLink 
+                  to="/mi-cuenta/pedidos" 
+                  icon="📦"
+                  description="Historial de compras"
+                >
+                  Mis Pedidos
+                </MenuLink>
+              </nav>
 
+              {/* Enlaces adicionales */}
+              <div className="mt-8 pt-6 border-t border-gray-200">
+                <h3 className="text-sm font-medium text-gray-500 mb-4">Enlaces Rápidos</h3>
+                <div className="space-y-2">
+                  <a 
+                    href="/products" 
+                    className="flex items-center gap-2 text-sm text-gray-600 hover:text-primary transition-colors"
+                  >
+                    <span>🛍️</span>
+                    Seguir Comprando
+                  </a>
+                  <a 
+                    href="/contacto" 
+                    className="flex items-center gap-2 text-sm text-gray-600 hover:text-primary transition-colors"
+                  >
+                    <span>💬</span>
+                    Contactar Soporte
+                  </a>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          {/* Área de Contenido Principal */}
+          <main className="lg:col-span-3">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+                <span>Mi Cuenta</span>
+                <span>›</span>
+                <span className="text-primary font-medium">{getPageTitle()}</span>
+              </div>
+              
+              {/* Contenido */}
+              <Outlet />
+            </div>
+          </main>
+
+        </div>
       </div>
     </div>
   );

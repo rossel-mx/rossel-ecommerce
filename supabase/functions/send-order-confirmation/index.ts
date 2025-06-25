@@ -1,111 +1,132 @@
 /**
- * Supabase Edge Function: send-order-confirmation
+ * Supabase Edge Function: send-order-confirmation (DEBUG VERSION)
  * ------------------------------------------------
- * Esta función se encarga de enviar un correo de confirmación de pedido
- * utilizando el servicio de Resend.
- *
- * Se invoca desde el frontend después de que un pedido se ha creado
- * exitosamente en la base de datos.
+ * Versión con debug mejorado para identificar el problema
  */
 
-// Importación para levantar el servidor de la función.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-// Importación de la librería de Resend, usando un especificador NPM para Deno.
 import { Resend } from "npm:resend";
 
-// --- 1. CONFIGURACIÓN INICIAL ---
-
-// Definimos las cabeceras CORS en una constante para reutilizarlas.
-// Esto es crucial para permitir que nuestra app de React (en otro dominio) llame a esta función.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Obtenemos la API key de Resend desde los secretos de Supabase.
-// Es la forma segura de manejar claves, nunca se exponen en el código.
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const resend = new Resend(RESEND_API_KEY);
-
-console.info("LOG: Función 'send-order-confirmation' inicializada correctamente.");
-
-// --- 2. SERVIDOR DE LA FUNCIÓN ---
+console.log("🚀 Función 'send-order-confirmation' inicializada - VERSIÓN DEBUG");
 
 serve(async (req) => {
-  // Log para cada nueva petición que llega a la función.
-  console.info(`LOG: Recibida petición con método: ${req.method}`);
+  console.log(`📨 Petición recibida: ${req.method}`);
 
-  // Manejo de la petición de "pre-vuelo" (preflight) OPTIONS para CORS.
-  // El navegador envía esta petición automáticamente antes de la petición POST real.
   if (req.method === "OPTIONS") {
-    console.info("LOG: Respondiendo a petición OPTIONS de pre-vuelo.");
+    console.log("✅ Respondiendo a OPTIONS");
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    // --- 3. PROCESAMIENTO DE LA PETICIÓN ---
+    // 1. VERIFICAR VARIABLES DE ENTORNO
+    console.log("🔍 Verificando variables de entorno...");
+    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
     
-    // Obtenemos los datos que nos envía el frontend (el objeto 'order').
-    const { order } = await req.json();
+    if (!RESEND_API_KEY) {
+      console.error("❌ RESEND_API_KEY no está configurada");
+      throw new Error("RESEND_API_KEY no está configurada en las variables de entorno");
+    }
+    
+    console.log("✅ RESEND_API_KEY encontrada:", RESEND_API_KEY.substring(0, 10) + "...");
 
-    // Log para depurar el payload (los datos) que recibimos.
-    console.log("LOG: Payload recibido del frontend:", order);
+    // 2. INICIALIZAR RESEND
+    console.log("🔧 Inicializando Resend...");
+    const resend = new Resend(RESEND_API_KEY);
+    console.log("✅ Resend inicializada");
 
-    // Verificación para asegurar que recibimos los datos necesarios.
-    if (!order || !order.id || !order.customer_email) {
-      throw new Error("Datos del pedido incompletos o inválidos.");
+    // 3. PROCESAR PAYLOAD
+    console.log("📦 Procesando payload...");
+    const requestBody = await req.json();
+    console.log("📋 Request body completo:", JSON.stringify(requestBody, null, 2));
+
+    const { order } = requestBody;
+    console.log("🛍️ Objeto order:", JSON.stringify(order, null, 2));
+
+    // 4. VALIDAR DATOS
+    if (!order) {
+      console.error("❌ No se encontró el objeto 'order' en el payload");
+      throw new Error("No se encontró el objeto 'order' en el payload");
     }
 
-    console.info(`LOG: Intentando enviar email para el pedido #${order.id} a ${order.customer_email}...`);
+    if (!order.id) {
+      console.error("❌ order.id no está presente");
+      throw new Error("order.id es requerido");
+    }
 
-    // --- 4. ENVÍO DEL CORREO CON RESEND ---
-    const { data, error } = await resend.emails.send({
-      // Usamos el dominio que verificaste en Resend.
-      from: "Rossel Tienda <ventas@shinerdev.com>", 
+    if (!order.customer_email) {
+      console.error("❌ order.customer_email no está presente");
+      throw new Error("order.customer_email es requerido");
+    }
+
+    console.log(`✅ Datos validados para orden #${order.id} - email: ${order.customer_email}`);
+
+    // 5. PREPARAR EMAIL
+    console.log("📧 Preparando email...");
+    const emailData = {
+      from: "Rossel Tienda <ventas@shinerdev.com>",
       to: [order.customer_email],
       subject: `✅ Confirmación de tu pedido en Rossel #${order.id}`,
-      // El cuerpo del correo en formato HTML.
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <h2 style="color: #B91C1C;">¡Gracias por tu compra, ${order.customer_name}!</h2>
+          <h2 style="color: #B91C1C;">¡Gracias por tu compra, ${order.customer_name || 'Cliente'}!</h2>
           <p>Hemos recibido tu pedido con el número <strong>#${order.id}</strong> y ya lo estamos preparando para ti.</p>
           <p>Recibirás otra notificación cuando tu pedido sea enviado.</p>
           <hr style="border: 0; border-top: 1px solid #eee;">
           <h3>Resumen del pedido:</h3>
           <ul>
-            ${order.items.map(item => `<li>(${item.quantity}x) ${item.product_name}</li>`).join('')}
+            ${order.items ? order.items.map(item => `<li>(${item.quantity}x) ${item.product_name}</li>`).join('') : '<li>Productos del pedido</li>'}
           </ul>
-          <p style="font-size: 1.2em;"><strong>Total: $${order.total_amount.toFixed(2)} MXN</strong></p>
+          <p style="font-size: 1.2em;"><strong>Total: $${order.total_amount ? order.total_amount.toFixed(2) : '0.00'} MXN</strong></p>
           <hr style="border: 0; border-top: 1px solid #eee;">
           <p style="font-size: 0.9em; color: #777;">Si tienes alguna pregunta, no dudes en contactarnos.</p>
           <p>¡Gracias por confiar en Rossel!</p>
         </div>
       `,
-    });
+    };
 
-    // Si Resend devuelve un error, lo lanzamos para que lo capture el bloque catch.
+    console.log("📧 Email preparado:", JSON.stringify({
+      from: emailData.from,
+      to: emailData.to,
+      subject: emailData.subject
+    }, null, 2));
+
+    // 6. ENVIAR EMAIL
+    console.log("🚀 Enviando email...");
+    const { data, error } = await resend.emails.send(emailData);
+
     if (error) {
-      throw error;
+      console.error("❌ Error de Resend:", JSON.stringify(error, null, 2));
+      throw new Error(`Error de Resend: ${JSON.stringify(error)}`);
     }
-    
-    console.info(`LOG: Email para el pedido #${order.id} enviado exitosamente. ID de Resend: ${data.id}`);
 
-    // --- 5. RESPUESTA DE ÉXITO ---
-    // Devolvemos una respuesta exitosa al frontend, incluyendo las cabeceras CORS.
-    return new Response(JSON.stringify({ success: true, messageId: data.id }), {
+    console.log("✅ Email enviado exitosamente!");
+    console.log("📧 Resend response:", JSON.stringify(data, null, 2));
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      messageId: data?.id,
+      debug: "Email enviado correctamente"
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
 
   } catch (error) {
-    // --- 6. MANEJO DE ERRORES ---
-    // Si algo sale mal en cualquier punto del 'try', lo capturamos aquí.
-    console.error("ERROR DETALLADO EN LA EDGE FUNCTION:", error);
+    console.error("💥 ERROR DETALLADO:", error);
+    console.error("💥 Error message:", error.message);
+    console.error("💥 Error stack:", error.stack);
     
-    // Devolvemos una respuesta de error al frontend, incluyendo las cabeceras CORS.
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      debug: "Error capturado en edge function"
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500, // Usamos 500 para un error inesperado del servidor.
+      status: 500,
     });
   }
 });

@@ -234,7 +234,7 @@ const ProductsTab = () => {
         key={editingProduct ? `edit-${editingProduct.id}` : 'create'} // Key para forzar re-render
       />
       
-      {/* La lista jerárquica de productos y variantes */}
+      {/* La liista jerárquica de productos y variantes */}
       {loading ? (
         <p className="text-center py-10">Cargando inventario...</p>
       ) : (

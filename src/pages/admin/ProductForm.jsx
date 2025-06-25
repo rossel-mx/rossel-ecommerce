@@ -555,7 +555,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
             </div>
           )}
           
-          {/* Vista previa de nuevas imágenes */}
+          {/* Viista previa de nuevas imágenes */}
           {variant.newImageFiles && variant.newImageFiles.length > 0 && (
             <div className="mt-2">
               <p className="text-sm text-gray-600 mb-2">Nuevas imágenes a subir:</p>

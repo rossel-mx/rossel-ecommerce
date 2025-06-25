@@ -132,7 +132,7 @@ const ProductList = ({ products, onEdit, onDelete, isActionLoading, editingProdu
                     </td>
                   </tr>
                   
-                  {/* --- SUB-TABLA DE VARIANTES EXPANDIBLE --- */}
+                  {/* --- SUUB-TABLA DE VARIANTES EXPANDIBLE --- */}
                   {/* Esta fila solo se renderiza si el producto está expandido */}
                   {expandedProductId === product.id && (
                     <tr className="bg-gray-50">

@@ -79,7 +79,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         variants: formattedVariants
       });
 
-      toast.success(`Editando: ${editingProduct.name}`);
+      // ❌ LÍNEA ELIMINADA: toast.success(`Editando: ${editingProduct.name}`);
+      // Se eliminó para evitar toast duplicado. La UI ya muestra claramente el modo edición.
+      console.log("LOG: [ProductForm] Modo edición configurado correctamente para:", editingProduct.name);
+
     } else {
       // Si no hay producto para editar, resetear al modo creación
       if (isEditMode) {
@@ -91,6 +94,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
   // --- 4. FUNCIÓN PARA LIMPIAR URLS DE OBJETOS ---
   const cleanupObjectUrls = (variants) => {
+    console.log("LOG: [ProductForm] Limpiando URLs de objetos en memoria...");
     variants.forEach(variant => {
       variant.newImageFiles?.forEach(file => {
         if (file && typeof file === 'object' && file.constructor === File) {
@@ -141,9 +145,13 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
   // --- 6. MANEJADORES DE ESTADO Y EVENTOS ---
 
-  const handleProductChange = (e) => setProduct(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleProductChange = (e) => {
+    console.log(`LOG: [ProductForm] Cambio en campo del producto: ${e.target.name} = ${e.target.value}`);
+    setProduct(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  };
   
   const handleVariantChange = (index, e) => {
+    console.log(`LOG: [ProductForm] Cambio en variante ${index}, campo: ${e.target.name} = ${e.target.value}`);
     const updatedVariants = [...product.variants];
     updatedVariants[index][e.target.name] = e.target.value;
     setProduct(prev => ({ ...prev, variants: updatedVariants }));
@@ -151,25 +159,37 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
   const handleFileChange = async (index, e) => {
     if (!e.target.files?.length) return;
+    
+    console.log(`LOG: [ProductForm] Procesando ${e.target.files.length} archivos para variante ${index}...`);
     toast.loading('Procesando imágenes...');
+    
     try {
       const filesArray = Array.from(e.target.files);
       const compressionOptions = { maxSizeMB: 2, maxWidthOrHeight: 1920, useWebWorker: true };
+      
+      console.log("LOG: [ProductForm] Iniciando compresión de imágenes...");
       const compressedFiles = await Promise.all(
         filesArray.map(file => imageCompression(file, compressionOptions))
       );
+      
       const updatedVariants = [...product.variants];
       updatedVariants[index].newImageFiles.push(...compressedFiles);
       setProduct(prev => ({ ...prev, variants: updatedVariants }));
+      
       toast.dismiss();
       toast.success(`${compressedFiles.length} imágenes listas para subir.`);
+      console.log(`LOG: [ProductForm] ${compressedFiles.length} imágenes comprimidas y añadidas a la variante ${index}.`);
+      
     } catch (error) {
+      console.error("ERROR: [ProductForm] Error al procesar imágenes:", error);
       toast.dismiss();
       toast.error('Error al procesar imágenes.');
     }
   };
   
   const handleRemoveNewImage = (variantIndex, fileToRemove) => {
+    console.log(`LOG: [ProductForm] Removiendo nueva imagen de variante ${variantIndex}...`);
+    
     // Liberar la URL del objeto antes de removerlo
     URL.revokeObjectURL(URL.createObjectURL(fileToRemove));
     
@@ -179,6 +199,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   };
 
   const handleRemoveExistingImage = (variantIndex, imageUrl) => {
+    console.log(`LOG: [ProductForm] Marcando imagen existente para eliminar en variante ${variantIndex}:`, imageUrl);
+    
     const updatedVariants = [...product.variants];
     updatedVariants[variantIndex].image_urls = updatedVariants[variantIndex].image_urls.filter(url => url !== imageUrl);
     setProduct(prev => ({ ...prev, variants: updatedVariants }));
@@ -186,6 +208,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   };
 
   const addVariant = () => {
+    console.log("LOG: [ProductForm] Añadiendo nueva variante...");
     setProduct(prev => ({
       ...prev,
       variants: [...prev.variants, { ...INITIAL_VARIANT_STATE, newImageFiles: [] }]
@@ -197,6 +220,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
       toast.error("Debe haber al menos una variante de producto.");
       return;
     }
+    
+    console.log(`LOG: [ProductForm] Removiendo variante ${index}...`);
     
     // Limpiar URLs de objetos de la variante que se va a eliminar
     const variantToRemove = product.variants[index];
@@ -216,6 +241,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     
     // Actualizar el array de referencias
     fileInputRefs.current = fileInputRefs.current.filter((_, i) => i !== index);
+    
+    console.log(`LOG: [ProductForm] Variante ${index} removida exitosamente.`);
   };
 
   const cancelEdit = () => {
@@ -236,12 +263,17 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     
     try {
       // --- SUBIDA A CLOUDINARY PARA NUEVAS IMÁGENES ---
+      console.log("LOG: [ProductForm] Solicitando firma de Cloudinary...");
       const { data: signatureData, error: signatureError } = await supabase.functions.invoke('generate-cloudinary-signature');
       if (signatureError) throw signatureError;
       const { signature, timestamp, eager } = signatureData;
       
-      for (const variant of product.variants) {
+      console.log("LOG: [ProductForm] Firma de Cloudinary obtenida, procesando variantes...");
+      
+      for (const [variantIndex, variant] of product.variants.entries()) {
         if (variant.newImageFiles && variant.newImageFiles.length > 0) {
+          console.log(`LOG: [ProductForm] Subiendo ${variant.newImageFiles.length} imágenes para variante ${variantIndex}...`);
+          
           const uploadPromises = variant.newImageFiles.map(file => {
             const formData = new FormData();
             formData.append('file', file);
@@ -265,6 +297,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
               return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/${transformationString}/v${res.version}/${res.public_id}`;
           });
           variant.image_urls.push(...newUrls);
+          
+          console.log(`LOG: [ProductForm] ${newUrls.length} imágenes subidas exitosamente para variante ${variantIndex}.`);
         }
       }
       console.log(`LOG: [ProductForm] Todas las nuevas imágenes han sido subidas a Cloudinary.`);
@@ -285,8 +319,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
           .eq('id', product.id);
         if (productError) throw productError;
 
+        console.log("LOG: [ProductForm] Producto base actualizado, procesando variantes...");
+
         // Actualizar variantes - necesitamos manejar las existentes y las nuevas
-        for (const variant of product.variants) {
+        for (const [variantIndex, variant] of product.variants.entries()) {
           const variantData = {
             product_id: product.id,
             color: variant.color,
@@ -299,6 +335,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
           if (variant.variant_id) {
             // Actualizar variante existente
+            console.log(`LOG: [ProductForm] Actualizando variante existente ${variant.variant_id}...`);
             const { error: updateError } = await supabase
               .from('product_variants')
               .update(variantData)
@@ -306,6 +343,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
             if (updateError) throw updateError;
           } else {
             // Insertar nueva variante
+            console.log(`LOG: [ProductForm] Insertando nueva variante ${variantIndex}...`);
             const { error: insertError } = await supabase
               .from('product_variants')
               .insert(variantData);
@@ -319,11 +357,15 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
       } else {
         // --- MODO CREACIÓN (código original) ---
+        console.log("LOG: [ProductForm] Creando nuevo producto...");
+        
         const { data: productData, error: productError } = await supabase
           .from('products').insert({
             sku: product.sku, name: product.name, description: product.description, category: product.category
           }).select().single();
         if (productError) throw productError;
+
+        console.log(`LOG: [ProductForm] Producto creado con ID: ${productData.id}, insertando variantes...`);
 
         const variantsToInsert = product.variants.map(variant => ({
           product_id: productData.id, color: variant.color, stock: parseInt(variant.stock, 10),
@@ -340,6 +382,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
       }
 
       // --- FINALIZACIÓN Y LIMPIEZA ROBUSTA ---
+      console.log("LOG: [ProductForm] Proceso completado exitosamente, reseteando formulario...");
       resetForm();
       onFormSubmit();
 

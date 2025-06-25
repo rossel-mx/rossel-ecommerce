@@ -7,6 +7,7 @@
  * - Mantener la lista actualizada en tiempo real mediante suscripciones a las tablas 'products' y 'product_variants'.
  * - Centralizar la lógica de eliminación segura, que borra un producto padre y todas sus variantes y imágenes asociadas.
  * - Orquestar los componentes hijos ProductForm y ProductList.
+ * - Manejar correctamente el flujo de edición CRUD.
  */
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../services/supabaseClient";
@@ -88,11 +89,70 @@ const ProductsTab = () => {
 
   /**
    * Se ejecuta cuando el ProductForm completa una operación de creación/edición.
+   * También se usa para cancelar la edición.
    */
   const handleFormSuccess = () => {
-    console.log("LOG: [ProductsTab] El formulario reportó éxito. Forzando recarga local.");
+    console.log("LOG: [ProductsTab] El formulario reportó éxito o se canceló la edición.");
+    
+    // Limpiar el estado de edición
     setEditingProduct(null);
-    fetchProductsWithVariants(); // Forzamos una recarga para ver los cambios al instante.
+    
+    // Forzar recarga para ver los cambios al instante
+    fetchProductsWithVariants();
+  };
+
+  /**
+   * Maneja el inicio de la edición de un producto.
+   * @param {Object} product - El producto completo con sus variantes a editar.
+   */
+  const handleEdit = (product) => {
+    console.log("LOG: [ProductsTab] Iniciando edición de producto:", product);
+    
+    // Verificar que el producto tiene la estructura correcta
+    if (!product || !product.id) {
+      console.error("ERROR: [ProductsTab] Producto inválido para edición:", product);
+      toast.error("Error: Producto inválido para edición");
+      return;
+    }
+
+    // Formatear el producto para que sea compatible con el formulario
+    const formattedProduct = {
+      id: product.id,
+      sku: product.sku || '',
+      name: product.name || '',
+      description: product.description || '',
+      category: product.category || '',
+      variants: product.variants?.map(variant => ({
+        variant_id: variant.id || variant.variant_id, // Asegurarse de que tenemos el ID
+        color: variant.color || '',
+        stock: variant.stock || 0,
+        price: variant.price || '',
+        price_menudeo: variant.price_menudeo || '',
+        price_mayoreo: variant.price_mayoreo || '',
+        image_urls: variant.image_urls || [],
+        newImageFiles: [] // Inicializar array para nuevas imágenes
+      })) || []
+    };
+
+    console.log("LOG: [ProductsTab] Producto formateado para edición:", formattedProduct);
+    
+    // Establecer el producto en modo de edición
+    setEditingProduct(formattedProduct);
+    
+    // Hacer scroll hacia arriba para que el admin vea el formulario
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // ❌ LÍNEA ELIMINADA: No más toast duplicado aquí
+    // toast.success(`Modo edición activado para: ${product.name}`);
+  };
+
+  /**
+   * Maneja la cancelación de la edición.
+   */
+  const handleCancelEdit = () => {
+    console.log("LOG: [ProductsTab] Cancelando edición...");
+    setEditingProduct(null);
+    toast.success("Edición cancelada");
   };
   
   /**
@@ -126,6 +186,11 @@ const ProductsTab = () => {
       const { error: deleteError } = await supabase.from('products').delete().eq('id', productId);
       if (deleteError) throw deleteError;
 
+      // Si estábamos editando este producto, cancelar la edición
+      if (editingProduct && editingProduct.id === productId) {
+        setEditingProduct(null);
+      }
+
       toast.dismiss();
       toast.success("Producto y todas sus variantes eliminados.");
       // No necesitamos llamar a fetchProducts() aquí, el listener de Realtime se encargará de actualizar la UI.
@@ -145,11 +210,28 @@ const ProductsTab = () => {
       <Toaster position="top-right" />
       <h3 className="text-2xl font-bold mb-4">Gestión de Inventario</h3>
       
-      {/* El formulario para crear productos y sus variantes */}
+      {/* Botón para crear nuevo producto (solo se muestra si no estamos editando) */}
+      {editingProduct && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex justify-between items-center">
+            <p className="text-blue-800 font-medium">
+              📝 Editando: <strong>{editingProduct.name}</strong>
+            </p>
+            <button 
+              onClick={handleCancelEdit}
+              className="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition"
+            >
+              ✕ Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* El formulario para crear/editar productos y sus variantes */}
       <ProductForm 
         onFormSubmit={handleFormSuccess} 
-        // Pasamos el producto a editar. El formulario se encargará de la lógica de edición.
-        editingProduct={editingProduct} 
+        editingProduct={editingProduct}
+        key={editingProduct ? `edit-${editingProduct.id}` : 'create'} // Key para forzar re-render
       />
       
       {/* La lista jerárquica de productos y variantes */}
@@ -158,14 +240,10 @@ const ProductsTab = () => {
       ) : (
         <ProductList 
           products={products}
-          onEdit={(product) => {
-            console.log("LOG: [ProductsTab] Editando producto:", product);
-            setEditingProduct(product);
-            // Hacemos scroll hacia arriba para que el admin vea el formulario rellenado.
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onEdit={handleEdit}
           onDelete={handleDelete}
           isActionLoading={isActionLoading}
+          editingProductId={editingProduct?.id} // Para resaltar el producto en edición
         />
       )}
     </div>

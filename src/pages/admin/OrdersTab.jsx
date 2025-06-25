@@ -1,18 +1,6 @@
 /**
  * @file OrdersTab.jsx
- * @description Panel de gestión de pedidos para el administrador. Esta es la versión final y robusta que incluye:
- * - Visualización detallada de órdenes (con artículos, color y dirección).
- * - Gestión completa del ciclo de vida del pedido (actualización de estado).
- * - Capacidad de añadir un número de seguimiento.
- * - Generación de un PDF imprimible con el checklist de empaque.
- * - Generación de un PDF imprimible con la etiqueta de envío.
- * - Documentación completa y logs de consola para facilitar el mantenimiento y la depuración.
- *
- * @requires react
- * @requires supabaseClient
- * @requires react-hot-toast
- * @requires jspdf
- * @requires jspdf-autotable
+ * @description Panel de gestión de pedidos para el administrador con SKU incluido.
  */
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../../services/supabaseClient";
@@ -21,7 +9,6 @@ import toast, { Toaster } from "react-hot-toast";
 // Importamos la librería principal y la función autoTable para el PDF.
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
 
 /**
  * @name StatusBadge
@@ -41,7 +28,6 @@ const StatusBadge = ({ status }) => {
   return <span className={`${baseClasses} ${specificClasses}`}>{status}</span>;
 };
 
-
 const OrdersTab = () => {
   // --- ESTADOS ---
   const [orders, setOrders] = useState([]);
@@ -56,13 +42,16 @@ const OrdersTab = () => {
     console.log("LOG: [OrdersTab] Iniciando fetchOrders...");
     try {
       const { data, error: rpcError } = await supabase.rpc('get_admin_order_details');
-      if (rpcError) throw rpcError;
+      if (rpcError) {
+        console.error("ERROR: [OrdersTab] Error RPC:", rpcError);
+        throw rpcError;
+      }
       console.log("LOG: [OrdersTab] Órdenes detalladas recibidas:", data);
       setOrders(data || []);
     } catch (err) {
       setError(err.message);
       console.error("ERROR: [OrdersTab] Error al cargar órdenes:", err);
-      toast.error("No se pudieron cargar las órdenes.");
+      toast.error("No se pudieron cargar las órdenes: " + err.message);
     } finally {
       setLoading(false);
       console.log("LOG: [OrdersTab] fetchOrders finalizado.");
@@ -112,23 +101,70 @@ const OrdersTab = () => {
     console.log(`LOG: [OrdersTab] Generando checklist en PDF para la orden #${order.id}`);
     try {
       const doc = new jsPDF();
+      
+      // Header del documento
       doc.setFontSize(20);
       doc.text("Checklist de Empaque - Rossel", 14, 22);
+      
+      // Información del pedido
       doc.setFontSize(12);
       doc.text(`Pedido ID: #${order.id}`, 14, 32);
       doc.text(`Cliente: ${order.client_name}`, 14, 38);
       doc.text(`Fecha: ${new Date(order.created_at).toLocaleDateString('es-MX')}`, 14, 44);
+      doc.text(`Estado: ${order.status.toUpperCase()}`, 14, 50);
 
-      const tableColumn = ["Cant.", "Producto", "Color", "OK"];
+      // Tabla de productos con SKU
+      const tableColumn = ["Cant.", "SKU", "Producto", "Color", "Verificado"];
       const tableRows = [];
+      
       (order.items || []).forEach(item => {
-        tableRows.push([item.quantity, item.product_name, item.color || 'N/A', '[  ]']);
+        tableRows.push([
+          item.quantity.toString(),
+          item.sku || 'N/A',
+          item.product_name,
+          item.color || 'N/A',
+          '[  ]'  // Checkbox para marcar como verificado
+        ]);
       });
 
-      autoTable(doc, { head: [tableColumn], body: tableRows, startY: 55 });
+      // Configuración de la tabla
+      autoTable(doc, { 
+        head: [tableColumn], 
+        body: tableRows, 
+        startY: 60,
+        styles: {
+          fontSize: 10,
+          cellPadding: 3,
+        },
+        headStyles: {
+          fillColor: [184, 28, 28], // Color primary de Rossel
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 20 }, // Cantidad
+          1: { halign: 'center', cellWidth: 30 }, // SKU
+          2: { cellWidth: 60 }, // Producto
+          3: { halign: 'center', cellWidth: 30 }, // Color
+          4: { halign: 'center', cellWidth: 25 } // Checkbox
+        }
+      });
+
+      // Footer con instrucciones
+      const finalY = doc.lastAutoTable.finalY + 20;
+      doc.setFontSize(10);
+      doc.text("Instrucciones:", 14, finalY);
+      doc.text("• Verificar cada producto contra este checklist", 14, finalY + 8);
+      doc.text("• Marcar la casilla 'Verificado' al confirmar el producto", 14, finalY + 16);
+      doc.text("• Verificar que el color y SKU coincidan exactamente", 14, finalY + 24);
+      
+      // Firma
+      doc.text("Empacado por: ________________________", 14, finalY + 40);
+      doc.text("Fecha: _______________", 14, finalY + 50);
+
       const fileName = `Checklist-Rossel-Pedido-${order.id}.pdf`;
       doc.save(fileName);
-      console.log(`LOG: [OrdersTab] Checklist generado y descargado como "${fileName}".`);
+      console.log(`LOG: [OrdersTab] Checklist con SKU generado y descargado como "${fileName}".`);
     } catch (error) {
       console.error("ERROR: [OrdersTab] No se pudo generar el PDF del checklist:", error);
       toast.error("No se pudo generar el checklist.");
@@ -143,16 +179,17 @@ const OrdersTab = () => {
     console.log(`LOG: [OrdersTab] Generando etiqueta de envío para la orden #${order.id}`);
     try {
       const doc = new jsPDF({
-        orientation: 'landscape',
+        orientation: 'portrait',
         unit: 'mm',
-        format: [100, 150]
+        format: [100, 150] // Tamaño estándar de etiqueta
       });
 
       const sender = {
         name: "Rossel Tienda",
         address: "Av. Siempre Viva 123, Col. Centro",
         city: "Guadalajara, Jalisco, C.P. 44100",
-        country: "México"
+        country: "México",
+        phone: "+52 33 1234 5678"
       };
 
       const recipient = order.shipping_address;
@@ -161,30 +198,122 @@ const OrdersTab = () => {
         return;
       }
 
-      doc.rect(5, 5, 140, 90);
+      // Colores de Rossel
+      const primaryColor = [184, 28, 28]; // Color primary
+      const lightGray = [245, 245, 245];
+      const darkGray = [75, 85, 99];
+
+      // === HEADER CON LOGO ===
+      doc.setFillColor(...primaryColor);
+      doc.rect(0, 0, 100, 25, 'F');
+      
+      // Logo/Texto de marca
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.text("ROSSEL", 50, 12, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'normal');
+      doc.text("Tienda en Línea", 50, 18, { align: 'center' });
+
+      // === SECCIÓN REMITENTE ===
+      doc.setFillColor(...lightGray);
+      doc.rect(5, 30, 90, 25, 'F');
+      
+      doc.setTextColor(...darkGray);
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'bold');
+      doc.text("REMITENTE:", 8, 36);
+      
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(7);
+      doc.text(sender.name, 8, 41);
+      doc.text(sender.address, 8, 45);
+      doc.text(sender.city, 8, 49);
+      doc.text(`Tel: ${sender.phone}`, 8, 53);
+
+      // === INFORMACIÓN DEL PEDIDO ===
+      doc.setFillColor(...primaryColor);
+      doc.rect(5, 60, 90, 12, 'F');
+      
+      doc.setTextColor(255, 255, 255);
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
-      doc.text("DE:", 10, 15);
-      doc.setFont(undefined, 'normal');
-      doc.text(sender.name, 20, 15);
-      doc.text(sender.address, 10, 20);
-      doc.text(sender.city, 10, 25);
-      doc.line(10, 35, 135, 35);
+      doc.text(`PEDIDO #${order.id}`, 50, 68, { align: 'center' });
+
+      // === SECCIÓN DESTINATARIO ===
+      doc.setTextColor(...darkGray);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.text("DESTINATARIO:", 8, 82);
+
+      // Nombre del cliente destacado
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...primaryColor);
+      doc.setLineWidth(0.5);
+      doc.rect(5, 85, 90, 8, 'FD');
+      
+      doc.setTextColor(...primaryColor);
       doc.setFontSize(12);
       doc.setFont(undefined, 'bold');
-      doc.text("PARA:", 10, 45);
-      doc.setFontSize(14);
-      doc.text(`${recipient.street_address}`, 10, 55);
-      if (recipient.address_line_2) doc.text(recipient.address_line_2, 10, 62);
-      doc.text(`Col. ${recipient.colonia}`, 10, 69);
-      doc.text(`${recipient.city}, ${recipient.state}`, 10, 76);
-      doc.text(`C.P. ${recipient.zip_code}, ${recipient.country}`, 10, 83);
-      doc.setFontSize(10);
-      doc.text(`Cliente: ${order.client_name}`, 10, 90);
+      doc.text(order.client_name || 'Cliente', 50, 90, { align: 'center' });
+
+      // Dirección del destinatario
+      doc.setTextColor(...darkGray);
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'normal');
+      
+      let yPos = 100;
+      doc.text(recipient.street_address, 8, yPos);
+      yPos += 5;
+      
+      if (recipient.address_line_2) {
+        doc.text(recipient.address_line_2, 8, yPos);
+        yPos += 5;
+      }
+      
+      doc.text(`Col. ${recipient.colonia}`, 8, yPos);
+      yPos += 5;
+      
+      doc.text(`${recipient.city}, ${recipient.state}`, 8, yPos);
+      yPos += 5;
+      
+      doc.setFont(undefined, 'bold');
+      doc.text(`C.P. ${recipient.zip_code}`, 8, yPos);
+      yPos += 5;
+      
+      doc.text(recipient.country || 'México', 8, yPos);
+
+      // === CÓDIGOS DE BARRAS SIMULADOS ===
+      doc.setFillColor(...darkGray);
+      doc.rect(8, 130, 25, 8, 'F');
+      doc.rect(38, 130, 25, 8, 'F');
+      doc.rect(68, 130, 25, 8, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(6);
+      doc.text(`#${order.id}`, 20, 135, { align: 'center' });
+      doc.text(recipient.zip_code, 50, 135, { align: 'center' });
+      doc.text(new Date().getFullYear().toString(), 80, 135, { align: 'center' });
+
+      // === FOOTER ===
+      doc.setTextColor(...darkGray);
+      doc.setFontSize(6);
+      doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')} ${new Date().toLocaleTimeString('es-MX')}`, 50, 145, { align: 'center' });
+
+      // === NÚMERO DE SEGUIMIENTO (si existe) ===
+      if (order.tracking_number) {
+        doc.setFillColor(...primaryColor);
+        doc.rect(5, 140, 90, 5, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(7);
+        doc.setFont(undefined, 'bold');
+        doc.text(`TRACKING: ${order.tracking_number}`, 50, 143, { align: 'center' });
+      }
 
       const fileName = `Etiqueta-Rossel-Pedido-${order.id}.pdf`;
       doc.save(fileName);
-      console.log(`LOG: [OrdersTab] Etiqueta generada y descargada como "${fileName}".`);
+      console.log(`LOG: [OrdersTab] Etiqueta moderna generada y descargada como "${fileName}".`);
     } catch (error) {
       console.error("ERROR: [OrdersTab] No se pudo generar la etiqueta de envío:", error);
       toast.error("No se pudo generar la etiqueta.");
@@ -254,23 +383,36 @@ const OrdersTab = () => {
                         </div>
                         <div>
                           <h4 className="font-semibold mb-2">Artículos en este pedido:</h4>
-                          <ul className="list-disc list-inside space-y-1 text-sm">
+                          <div className="space-y-2">
                             {(order.items || []).map((item, index) => (
-                              <li key={index}>
-                                <span className="font-medium">({item.quantity}x) {item.product_name}</span>
-                                {item.color && <span className="text-gray-500"> ({item.color})</span>}
-                                <span> - {formatCurrency(item.unit_price)} c/u</span>
-                              </li>
+                              <div key={index} className="bg-white p-3 rounded border text-sm">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-medium text-gray-900">
+                                      <span className="bg-gray-100 px-2 py-1 rounded text-xs font-mono mr-2">
+                                        {item.sku || 'N/A'}
+                                      </span>
+                                      {item.product_name}
+                                    </p>
+                                    <p className="text-gray-600 mt-1">
+                                      Color: {item.color || 'N/A'} • Cantidad: {item.quantity}
+                                    </p>
+                                  </div>
+                                  <p className="font-medium text-gray-900">
+                                    {formatCurrency(item.unit_price)} c/u
+                                  </p>
+                                </div>
+                              </div>
                             ))}
-                          </ul>
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-wrap justify-end gap-4 mt-4 border-t pt-4">
                         <button onClick={() => handlePrintChecklist(order)} className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition text-sm font-semibold">
-                          Imprimir Checklist
+                          📋 Imprimir Checklist
                         </button>
                         <button onClick={() => handleGenerateShippingLabel(order)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-semibold">
-                          Generar Etiqueta de Envío
+                          🏷️ Generar Etiqueta de Envío
                         </button>
                       </div>
                     </td>

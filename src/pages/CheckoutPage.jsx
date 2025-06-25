@@ -280,7 +280,7 @@ const sendOrderConfirmationEmail = async (orderId) => {
       // Crear la orden
       const { data: newOrderId, error: orderError } = await supabase.rpc('create_new_order', {
         cart_items: cartItemsForRPC,
-        shipping_address_id: selectedAddressId || null
+        shipping_address_id: selectedAddressId
       });
       
       if (orderError) {

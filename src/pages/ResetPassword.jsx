@@ -125,16 +125,15 @@ const ResetPassword = () => {
           if (sessionData.session.user.recovery_sent_at) {
             console.log("LOG: [ResetPassword] Sesión de recovery válida detectada");
             
-            // Guardar los tokens antes de cerrar la sesión
+            // NO cerrar la sesión de recovery - la necesitamos para actualizar la contraseña
+            // Solo guardar referencia de que es válida
             window.resetTokens = {
               accessToken: sessionData.session.access_token,
-              refreshToken: sessionData.session.refresh_token
+              refreshToken: sessionData.session.refresh_token,
+              isRecoverySession: true
             };
             
-            console.log("LOG: [ResetPassword] Tokens guardados, cerrando sesión por seguridad...");
-            await supabase.auth.signOut();
-            
-            console.log("LOG: [ResetPassword] Sesión cerrada, tokens de recovery válidos");
+            console.log("LOG: [ResetPassword] Sesión de recovery válida mantenida activa");
             setTokenValid(true);
             toast.success("Enlace de recuperación válido. Establece tu nueva contraseña.");
             setInitialLoading(false);
@@ -319,19 +318,23 @@ const ResetPassword = () => {
     console.log("LOG: [ResetPassword] Iniciando actualización de contraseña...");
 
     try {
-      // Verificar que aún tenemos tokens válidos
+      // Verificar que tenemos tokens de recovery
       const tokens = window.resetTokens;
       if (!tokens) {
         throw new Error('Sesión expirada. Solicita un nuevo enlace de recuperación.');
       }
 
-      // Verificar que la sesión actual sigue siendo válida
+      // Verificar que la sesión de recovery sigue activa
       const { data: currentSession } = await supabase.auth.getSession();
       
       if (!currentSession.session) {
-        console.log("LOG: [ResetPassword] No hay sesión activa, reestableciendo...");
+        console.log("LOG: [ResetPassword] No hay sesión activa, intentando reestablecer con tokens de recovery...");
         
-        // Reestablecer sesión si se perdió
+        // Solo reestablecer si tenemos tokens válidos
+        if (!tokens.isRecoverySession) {
+          throw new Error('No se puede reestablecer sesión sin tokens de recovery válidos.');
+        }
+        
         const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
           access_token: tokens.accessToken,
           refresh_token: tokens.refreshToken
@@ -339,21 +342,21 @@ const ResetPassword = () => {
 
         if (sessionError) {
           console.error("ERROR: [ResetPassword] Error al reestablecer sesión:", sessionError);
-          
-          if (sessionError.message.includes('expired') || sessionError.message.includes('invalid')) {
-            throw new Error('El enlace de recuperación ha expirado durante el proceso. Solicita uno nuevo.');
-          }
-          throw sessionError;
+          throw new Error('El enlace de recuperación ha expirado durante el proceso. Solicita uno nuevo.');
         }
 
         if (!sessionData.user) {
           throw new Error('No se pudo reestablecer la sesión de recuperación');
         }
+        
+        console.log("LOG: [ResetPassword] Sesión de recovery reestablecida exitosamente");
+      } else {
+        console.log("LOG: [ResetPassword] Sesión de recovery activa, continuando...");
       }
 
-      console.log("LOG: [ResetPassword] Sesión válida, actualizando contraseña...");
+      console.log("LOG: [ResetPassword] Actualizando contraseña...");
 
-      // Actualizar la contraseña
+      // Actualizar la contraseña directamente
       const { data, error } = await supabase.auth.updateUser({
         password: form.password
       });
@@ -380,6 +383,7 @@ const ResetPassword = () => {
       delete window.resetTokens;
       
       setTimeout(async () => {
+        console.log("LOG: [ResetPassword] Cerrando sesión y redirigiendo...");
         await supabase.auth.signOut();
         navigate("/login", { 
           state: { 

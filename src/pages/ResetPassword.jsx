@@ -11,6 +11,7 @@
  * - ✅ Estados de loading y error
  * - ✅ Feedback visual completo
  * - ✅ Redirección automática tras éxito
+ * - ✅ Debug completo de tokens
  */
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -65,84 +66,202 @@ const ResetPassword = () => {
   // Verificar token al cargar la página
   useEffect(() => {
     const verifyToken = async () => {
-      console.log("LOG: [ResetPassword] Verificando token de recuperación...");
+      console.log("LOG: [ResetPassword] === INICIO DEBUG COMPLETO ===");
+      
+      // 1. DEBUGGING COMPLETO DE LA URL
+      console.log("LOG: [ResetPassword] URL completa:", window.location.href);
+      console.log("LOG: [ResetPassword] Pathname:", window.location.pathname);
+      console.log("LOG: [ResetPassword] Search:", window.location.search);
+      console.log("LOG: [ResetPassword] Hash:", window.location.hash);
+      
+      // 2. DEBUGGING DE TODOS LOS PARÁMETROS POSIBLES
+      console.log("LOG: [ResetPassword] Query Params completos:");
+      searchParams.forEach((value, key) => {
+        console.log(`  ${key}: "${value}"`);
+      });
+      
+      // 3. DEBUGGING DE HASH FRAGMENTS
+      if (window.location.hash) {
+        console.log("LOG: [ResetPassword] Hash fragments:");
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        hashParams.forEach((value, key) => {
+          console.log(`  ${key}: "${value}"`);
+        });
+      }
+      
+      // 4. BUSCAR TOKENS EN TODOS LOS LUGARES POSIBLES
+      console.log("LOG: [ResetPassword] Buscando tokens...");
       
       try {
-        // Primero verificar si ya hay una sesión activa (Supabase auto-login)
+        // Verificar si ya hay una sesión activa
         const { data: sessionData } = await supabase.auth.getSession();
         
         if (sessionData.session) {
-          console.log("LOG: [ResetPassword] Sesión auto-logueada detectada, cerrando por seguridad...");
+          console.log("LOG: [ResetPassword] ¡ENCONTRÉ SESIÓN ACTIVA!", {
+            user: sessionData.session.user.email,
+            expires_at: sessionData.session.expires_at,
+            token_type: sessionData.session.token_type
+          });
           
-          // Cerrar la sesión automáticamente por seguridad
-          await supabase.auth.signOut();
-          
-          console.log("LOG: [ResetPassword] Sesión cerrada, buscando tokens en URL...");
+          // Si hay sesión activa, verificar si es una sesión de recovery
+          if (sessionData.session.user.recovery_sent_at) {
+            console.log("LOG: [ResetPassword] Sesión de recovery detectada");
+            setTokenValid(true);
+            toast.success("Sesión de recuperación activa. Establece tu nueva contraseña.");
+            setInitialLoading(false);
+            return;
+          } else {
+            console.log("LOG: [ResetPassword] Sesión normal detectada, cerrando por seguridad...");
+            await supabase.auth.signOut();
+          }
         }
 
-        // Buscar tokens en la URL (independientemente de si había sesión o no)
+        // Buscar tokens en URL
         let accessToken = searchParams.get('access_token');
         let refreshToken = searchParams.get('refresh_token');
         let type = searchParams.get('type');
+        let tokenHash = searchParams.get('token_hash');
+        let token = searchParams.get('token');
         
-        // Si no están en query params, buscar en hash fragments
-        if (!accessToken && window.location.hash) {
-          console.log("LOG: [ResetPassword] Buscando tokens en hash fragments...");
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          accessToken = hashParams.get('access_token');
-          refreshToken = hashParams.get('refresh_token');
-          type = hashParams.get('type');
-        }
-        
-        console.log("LOG: [ResetPassword] Parámetros encontrados:", { 
-          hasAccessToken: !!accessToken, 
-          hasRefreshToken: !!refreshToken, 
-          type,
-          source: window.location.hash ? 'hash' : 'query',
-          accessTokenLength: accessToken ? accessToken.length : 0,
-          refreshTokenLength: refreshToken ? refreshToken.length : 0,
-          exactType: type,
-          actualHash: window.location.hash,
-          actualSearch: window.location.search
-        });
-
-        console.log("LOG: [ResetPassword] Valores exactos:", {
-          accessToken: accessToken ? accessToken.substring(0, 50) + '...' : null,
-          refreshToken: refreshToken ? refreshToken.substring(0, 20) + '...' : null,
-          type: `"${type}"`
-        });
-
+        // También buscar variaciones comunes
         if (!accessToken) {
-          console.error("ERROR: [ResetPassword] accessToken está vacío o null");
-          throw new Error('Token de acceso faltante');
+          accessToken = searchParams.get('access-token') || 
+                       searchParams.get('accessToken') ||
+                       searchParams.get('token');
         }
-
-        if (type !== 'recovery') {
-          console.error("ERROR: [ResetPassword] Tipo incorrecto. Esperado: 'recovery', Recibido:", `"${type}"`);
-          throw new Error(`Tipo de token incorrecto: ${type}`);
-        }
-
-        console.log("LOG: [ResetPassword] Validación básica pasada, continuando...");
-
-        // Guardamos los tokens para usarlos más tarde
-        window.resetTokens = { accessToken, refreshToken };
         
-        // Simplemente mostramos que el token está presente y es del tipo correcto
-        console.log("LOG: [ResetPassword] Token de recuperación detectado");
+        // Buscar en hash fragments
+        if (!accessToken && window.location.hash) {
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          accessToken = hashParams.get('access_token') || 
+                       hashParams.get('access-token') ||
+                       hashParams.get('accessToken') ||
+                       hashParams.get('token');
+          refreshToken = hashParams.get('refresh_token') || 
+                        hashParams.get('refresh-token') ||
+                        hashParams.get('refreshToken');
+          type = hashParams.get('type');
+          tokenHash = hashParams.get('token_hash');
+        }
+        
+        console.log("LOG: [ResetPassword] Tokens encontrados:", {
+          accessToken: accessToken ? `${accessToken.substring(0, 20)}...` : null,
+          refreshToken: refreshToken ? `${refreshToken.substring(0, 20)}...` : null,
+          type: `"${type}"`,
+          tokenHash: tokenHash ? `${tokenHash.substring(0, 20)}...` : null,
+          token: token ? `${token.substring(0, 20)}...` : null
+        });
+
+        // Si no encontramos access_token pero tenemos otros tokens, intentar diferentes flujos
+        if (!accessToken) {
+          if (tokenHash) {
+            console.log("LOG: [ResetPassword] Encontré token_hash, intentando flujo alternativo...");
+            // Flujo alternativo con token_hash
+            const { data, error } = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: 'recovery'
+            });
+            
+            if (error) {
+              console.error("ERROR: [ResetPassword] Error con token_hash:", error);
+              throw new Error(`Error con token_hash: ${error.message}`);
+            }
+            
+            if (data.user) {
+              console.log("LOG: [ResetPassword] ¡Token_hash válido!");
+              setTokenValid(true);
+              toast.success("Enlace de recuperación válido. Establece tu nueva contraseña.");
+              setInitialLoading(false);
+              return;
+            }
+          }
+          
+          if (token) {
+            console.log("LOG: [ResetPassword] Encontré token genérico, intentando...");
+            // Intentar con token genérico
+            const { data, error } = await supabase.auth.verifyOtp({
+              token: token,
+              type: 'recovery'
+            });
+            
+            if (error) {
+              console.error("ERROR: [ResetPassword] Error con token genérico:", error);
+              throw new Error(`Error con token: ${error.message}`);
+            }
+            
+            if (data.user) {
+              console.log("LOG: [ResetPassword] ¡Token genérico válido!");
+              setTokenValid(true);
+              toast.success("Enlace de recuperación válido. Establece tu nueva contraseña.");
+              setInitialLoading(false);
+              return;
+            }
+          }
+          
+          // Si llegamos aquí, no hay tokens válidos
+          throw new Error('No se encontraron tokens de recuperación en la URL');
+        }
+
+        // Flujo normal con access_token
+        if (type !== 'recovery') {
+          throw new Error(`Tipo de token incorrecto: esperado 'recovery', recibido '${type}'`);
+        }
+
+        console.log("LOG: [ResetPassword] Estableciendo sesión con access_token...");
+        
+        const { data: newSessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+
+        if (sessionError) {
+          console.error("ERROR: [ResetPassword] Error al establecer sesión:", sessionError);
+          
+          if (sessionError.message.includes('expired') || 
+              sessionError.message.includes('invalid_token') ||
+              sessionError.message.includes('Token has expired')) {
+            throw new Error('El enlace de recuperación ha expirado. Solicita uno nuevo desde la página de login.');
+          }
+          
+          if (sessionError.message.includes('invalid')) {
+            throw new Error('El enlace de recuperación es inválido. Verifica que sea el enlace más reciente enviado a tu email.');
+          }
+          
+          throw sessionError;
+        }
+
+        if (!newSessionData.user) {
+          throw new Error('No se pudo autenticar con el enlace de recuperación');
+        }
+
+        console.log("LOG: [ResetPassword] ¡Sesión establecida exitosamente para:", newSessionData.user.email);
+        window.resetTokens = { accessToken, refreshToken };
         setTokenValid(true);
         toast.success("Enlace de recuperación válido. Establece tu nueva contraseña.");
         
-        // Limpiar la URL para que se vea más limpia
+        // Limpiar URL
         if (window.location.hash) {
           window.history.replaceState(null, '', window.location.pathname);
         }
 
       } catch (err) {
-        console.error("ERROR: [ResetPassword] Error en verificación de token:", err);
+        console.error("ERROR: [ResetPassword] Error completo:", err);
         setTokenValid(false);
-        toast.error("El enlace de recuperación es inválido o faltante.");
+        
+        // Mensajes de error más user-friendly
+        let userMessage = err.message;
+        if (err.message.includes('No se encontraron tokens')) {
+          userMessage = 'El enlace de recuperación es incompleto. Verifica que uses el enlace completo del email.';
+        } else if (err.message.includes('expirado') || err.message.includes('expired')) {
+          userMessage = 'El enlace de recuperación ha expirado. Los enlaces son válidos por tiempo limitado por seguridad.';
+        } else if (err.message.includes('inválido') || err.message.includes('invalid')) {
+          userMessage = 'El enlace de recuperación no es válido. Asegúrate de usar el enlace más reciente.';
+        }
+        
+        toast.error(userMessage);
       } finally {
         setInitialLoading(false);
+        console.log("LOG: [ResetPassword] === FIN DEBUG COMPLETO ===");
       }
     };
 
@@ -163,36 +282,41 @@ const ResetPassword = () => {
     console.log("LOG: [ResetPassword] Iniciando actualización de contraseña...");
 
     try {
-      // Usar tokens guardados para establecer sesión temporal solo para el reset
+      // Verificar que aún tenemos tokens válidos
       const tokens = window.resetTokens;
       if (!tokens) {
-        throw new Error('No se encontraron tokens de sesión');
+        throw new Error('Sesión expirada. Solicita un nuevo enlace de recuperación.');
       }
 
-      console.log("LOG: [ResetPassword] Estableciendo sesión temporal con tokens...");
-
-      // Establecer sesión temporal con los tokens originales
-      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-        access_token: tokens.accessToken,
-        refresh_token: tokens.refreshToken
-      });
-
-      if (sessionError) {
-        console.error("ERROR: [ResetPassword] Error al establecer sesión:", sessionError);
+      // Verificar que la sesión actual sigue siendo válida
+      const { data: currentSession } = await supabase.auth.getSession();
+      
+      if (!currentSession.session) {
+        console.log("LOG: [ResetPassword] No hay sesión activa, reestableciendo...");
         
-        if (sessionError.message.includes('expired') || sessionError.message.includes('invalid')) {
-          throw new Error('El enlace de recuperación ha expirado. Solicita uno nuevo.');
+        // Reestablecer sesión si se perdió
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken
+        });
+
+        if (sessionError) {
+          console.error("ERROR: [ResetPassword] Error al reestablecer sesión:", sessionError);
+          
+          if (sessionError.message.includes('expired') || sessionError.message.includes('invalid')) {
+            throw new Error('El enlace de recuperación ha expirado durante el proceso. Solicita uno nuevo.');
+          }
+          throw sessionError;
         }
-        throw sessionError;
+
+        if (!sessionData.user) {
+          throw new Error('No se pudo reestablecer la sesión de recuperación');
+        }
       }
 
-      if (!sessionData.user) {
-        throw new Error('No se pudo autenticar con el enlace de recuperación');
-      }
+      console.log("LOG: [ResetPassword] Sesión válida, actualizando contraseña...");
 
-      console.log("LOG: [ResetPassword] Sesión temporal establecida, actualizando contraseña para:", sessionData.user.email);
-
-      // Actualizar la contraseña del usuario
+      // Actualizar la contraseña
       const { data, error } = await supabase.auth.updateUser({
         password: form.password
       });
@@ -201,9 +325,11 @@ const ResetPassword = () => {
         console.error("ERROR: [ResetPassword] Error al actualizar contraseña:", error);
         
         if (error.message.includes('session_not_found')) {
-          throw new Error('La sesión ha expirado. Solicita un nuevo enlace de recuperación.');
+          throw new Error('La sesión ha expirado durante la actualización. Solicita un nuevo enlace.');
         } else if (error.message.includes('same_password')) {
           throw new Error('La nueva contraseña debe ser diferente a la actual.');
+        } else if (error.message.includes('weak_password')) {
+          throw new Error('La contraseña no cumple con los requisitos de seguridad.');
         }
         
         throw error;
@@ -213,12 +339,15 @@ const ResetPassword = () => {
       setSuccessMessage("¡Contraseña actualizada exitosamente!");
       toast.success("¡Tu contraseña ha sido actualizada exitosamente!");
 
-      // Cerrar sesión y redirigir al login después de 3 segundos
+      // Limpiar tokens y cerrar sesión después de éxito
+      delete window.resetTokens;
+      
       setTimeout(async () => {
         await supabase.auth.signOut();
         navigate("/login", { 
           state: { 
-            message: "Contraseña actualizada. Inicia sesión con tu nueva contraseña." 
+            message: "Contraseña actualizada exitosamente. Inicia sesión con tu nueva contraseña.",
+            type: "success"
           }
         });
       }, 3000);
@@ -227,12 +356,16 @@ const ResetPassword = () => {
       console.error("ERROR: [ResetPassword] Error completo:", err);
       
       let errorMessage = err.message || "Error al actualizar la contraseña. Intenta de nuevo.";
-      toast.error(errorMessage);
       
-      // Si el error es de sesión expirada, marcar token como inválido
+      // Mensajes específicos para diferentes tipos de error
       if (err.message.includes('expirado') || err.message.includes('expired')) {
-        setTokenValid(false);
+        errorMessage = 'El enlace de recuperación ha expirado. Por favor, solicita un nuevo enlace desde la página de login.';
+        setTokenValid(false); // Marcar token como inválido
+      } else if (err.message.includes('network') || err.message.includes('fetch')) {
+        errorMessage = 'Error de conexión. Verifica tu internet e intenta nuevamente.';
       }
+      
+      toast.error(errorMessage);
       
     } finally {
       setLoading(false);

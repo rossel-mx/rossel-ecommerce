@@ -3,6 +3,139 @@ import { Link } from "react-router-dom";
 import { supabase } from "../services/supabaseClient";
 import toast from "react-hot-toast";
 
+// 🔒 UTILIDADES DE SEGURIDAD (mismas que Login)
+const SecurityUtils = {
+  // Rate limiting por Email
+  getAttemptKey: (email) => `register_attempts_${email}`,
+  getBlockKey: (email) => `register_blocked_${email}`,
+  getGlobalAttemptKey: () => `register_global_attempts`,
+  
+  // Obtener intentos fallidos por email
+  getFailedAttempts: (email) => {
+    try {
+      const attempts = localStorage.getItem(SecurityUtils.getAttemptKey(email));
+      return attempts ? JSON.parse(attempts) : { count: 0, lastAttempt: null };
+    } catch {
+      return { count: 0, lastAttempt: null };
+    }
+  },
+  
+  // Obtener intentos globales (por IP/dispositivo)
+  getGlobalAttempts: () => {
+    try {
+      const attempts = localStorage.getItem(SecurityUtils.getGlobalAttemptKey());
+      return attempts ? JSON.parse(attempts) : { count: 0, lastAttempt: null };
+    } catch {
+      return { count: 0, lastAttempt: null };
+    }
+  },
+  
+  // Incrementar intentos fallidos
+  incrementFailedAttempts: (email) => {
+    const attempts = SecurityUtils.getFailedAttempts(email);
+    const globalAttempts = SecurityUtils.getGlobalAttempts();
+    
+    const newAttempts = {
+      count: attempts.count + 1,
+      lastAttempt: Date.now()
+    };
+    
+    const newGlobalAttempts = {
+      count: globalAttempts.count + 1,
+      lastAttempt: Date.now()
+    };
+    
+    localStorage.setItem(SecurityUtils.getAttemptKey(email), JSON.stringify(newAttempts));
+    localStorage.setItem(SecurityUtils.getGlobalAttemptKey(), JSON.stringify(newGlobalAttempts));
+    
+    return { email: newAttempts, global: newGlobalAttempts };
+  },
+  
+  // Limpiar intentos fallidos (registro exitoso)
+  clearFailedAttempts: (email) => {
+    localStorage.removeItem(SecurityUtils.getAttemptKey(email));
+    localStorage.removeItem(SecurityUtils.getBlockKey(email));
+    // No limpiar globales para mantener protección general
+  },
+  
+  // Verificar si está bloqueado
+  isBlocked: (email) => {
+    try {
+      // Verificar bloqueo específico del email
+      const blockData = localStorage.getItem(SecurityUtils.getBlockKey(email));
+      if (blockData) {
+        const { blockedUntil, reason } = JSON.parse(blockData);
+        if (Date.now() < blockedUntil) {
+          return { 
+            blocked: true, 
+            remainingTime: Math.ceil((blockedUntil - Date.now()) / 1000 / 60),
+            reason,
+            type: 'email'
+          };
+        } else {
+          localStorage.removeItem(SecurityUtils.getBlockKey(email));
+        }
+      }
+      
+      // Verificar bloqueo global
+      const globalBlockData = localStorage.getItem('register_global_blocked');
+      if (globalBlockData) {
+        const { blockedUntil, reason } = JSON.parse(globalBlockData);
+        if (Date.now() < blockedUntil) {
+          return { 
+            blocked: true, 
+            remainingTime: Math.ceil((blockedUntil - Date.now()) / 1000 / 60),
+            reason,
+            type: 'global'
+          };
+        } else {
+          localStorage.removeItem('register_global_blocked');
+        }
+      }
+      
+      return { blocked: false };
+    } catch {
+      return { blocked: false };
+    }
+  },
+  
+  // Bloquear cuenta
+  blockAccount: (email, minutes = 15, reason = "Demasiados intentos fallidos") => {
+    const blockData = {
+      blockedUntil: Date.now() + (minutes * 60 * 1000),
+      reason,
+      blockedAt: Date.now()
+    };
+    localStorage.setItem(SecurityUtils.getBlockKey(email), JSON.stringify(blockData));
+  },
+  
+  // Bloqueo global
+  blockGlobal: (minutes = 30, reason = "Demasiados intentos de registro") => {
+    const blockData = {
+      blockedUntil: Date.now() + (minutes * 60 * 1000),
+      reason,
+      blockedAt: Date.now()
+    };
+    localStorage.setItem('register_global_blocked', JSON.stringify(blockData));
+  },
+  
+  // Sanitizar email
+  sanitizeEmail: (email) => {
+    return email.toLowerCase().trim().replace(/[^\w@.-]/g, '');
+  },
+  
+  // Sanitizar texto
+  sanitizeText: (text, maxLength = 100) => {
+    return text.trim().slice(0, maxLength).replace(/[<>'"]/g, '');
+  },
+  
+  // Validar email
+  isValidEmail: (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email) && email.length <= 254;
+  }
+};
+
 const Register = () => {
   const [form, setForm] = useState({
     name: "",
@@ -19,7 +152,17 @@ const Register = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Validación en tiempo real
+  // 🔒 ESTADOS DE SEGURIDAD
+  const [securityState, setSecurityState] = useState({
+    emailAttempts: 0,
+    globalAttempts: 0,
+    isBlocked: false,
+    blockRemainingTime: 0,
+    blockReason: "",
+    blockType: ""
+  });
+
+  // Validación en tiempo real (MANTENER ORIGINAL)
   useEffect(() => {
     if (form.password && !/^(?=.*[A-Z])(?=.*\d).{6,}$/.test(form.password)) {
       setPasswordError("Debe tener al menos 6 caracteres, una mayúscula y un número.");
@@ -38,32 +181,141 @@ const Register = () => {
     setIsValid(noErrors);
   }, [form.name, form.email, form.password, form.confirmPassword]);
 
+  // 🔒 VERIFICAR ESTADO DE SEGURIDAD AL CAMBIAR EMAIL
+  useEffect(() => {
+    if (form.email) {
+      const sanitizedEmail = SecurityUtils.sanitizeEmail(form.email);
+      if (sanitizedEmail) {
+        const emailAttempts = SecurityUtils.getFailedAttempts(sanitizedEmail);
+        const globalAttempts = SecurityUtils.getGlobalAttempts();
+        const blockStatus = SecurityUtils.isBlocked(sanitizedEmail);
+        
+        setSecurityState({
+          emailAttempts: emailAttempts.count,
+          globalAttempts: globalAttempts.count,
+          isBlocked: blockStatus.blocked,
+          blockRemainingTime: blockStatus.remainingTime || 0,
+          blockReason: blockStatus.reason || "",
+          blockType: blockStatus.type || ""
+        });
+      }
+    }
+  }, [form.email]);
+
+  // 🔒 ACTUALIZAR TIEMPO RESTANTE DE BLOQUEO
+  useEffect(() => {
+    let interval;
+    if (securityState.isBlocked && securityState.blockRemainingTime > 0) {
+      interval = setInterval(() => {
+        const sanitizedEmail = SecurityUtils.sanitizeEmail(form.email);
+        const blockStatus = SecurityUtils.isBlocked(sanitizedEmail);
+        
+        if (!blockStatus.blocked) {
+          setSecurityState(prev => ({ ...prev, isBlocked: false, blockRemainingTime: 0 }));
+        } else {
+          setSecurityState(prev => ({ ...prev, blockRemainingTime: blockStatus.remainingTime }));
+        }
+      }, 1000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [securityState.isBlocked, form.email]);
+
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    
+    if (name === "email") {
+      setEmailError(""); // Limpiar errores al cambiar email
+      const sanitized = SecurityUtils.sanitizeEmail(value);
+      setForm(prev => ({ ...prev, [name]: sanitized }));
+    } else if (name === "name") {
+      const sanitized = SecurityUtils.sanitizeText(value, 50);
+      setForm(prev => ({ ...prev, [name]: sanitized }));
+    } else {
+      setForm(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isValid) return;
 
+    // 🔒 VALIDACIONES DE SEGURIDAD PREVIAS
+    const sanitizedEmail = SecurityUtils.sanitizeEmail(form.email);
+    const sanitizedName = SecurityUtils.sanitizeText(form.name, 50);
+    
+    // Validar formato de email
+    if (!SecurityUtils.isValidEmail(sanitizedEmail)) {
+      setEmailError("Formato de email inválido");
+      toast.error("Por favor ingresa un email válido");
+      return;
+    }
+    
+    // Verificar si está bloqueado
+    const blockStatus = SecurityUtils.isBlocked(sanitizedEmail);
+    if (blockStatus.blocked) {
+      const message = blockStatus.type === 'global' 
+        ? `Registro temporalmente bloqueado por ${blockStatus.remainingTime} minutos más`
+        : `Email bloqueado por ${blockStatus.remainingTime} minutos más debido a múltiples intentos`;
+      toast.error(message);
+      return;
+    }
+    
+    // Verificar límite de intentos (advertencia antes del bloqueo)
+    const emailAttempts = SecurityUtils.getFailedAttempts(sanitizedEmail);
+    const globalAttempts = SecurityUtils.getGlobalAttempts();
+    
+    if (emailAttempts.count >= 2) {
+      toast.warning(`Advertencia: ${3 - emailAttempts.count} intentos restantes para este email`);
+    }
+    
+    if (globalAttempts.count >= 8) {
+      toast.warning(`Advertencia: límite de registros casi alcanzado`);
+    }
+
     setLoading(true);
     setEmailError(""); // Limpiar errores previos
 
     try {
-      console.log("Iniciando registro para:", form.email);
+      console.log("LOG: [Register] Iniciando registro para:", sanitizedEmail);
       
-      // 🔍 VERIFICACIÓN PREVIA con función RPC
-      console.log("Verificando si el email ya existe...");
+      // 🔍 VERIFICACIÓN PREVIA con función RPC (MANTENER ORIGINAL)
+      console.log("LOG: [Register] Verificando si el email ya existe...");
       const { data: emailExists, error: rpcError } = await supabase
-        .rpc('check_email_exists', { email_to_check: form.email.toLowerCase().trim() });
+        .rpc('check_email_exists', { email_to_check: sanitizedEmail });
 
-      console.log("Resultado de verificación:", { emailExists, rpcError });
+      console.log("LOG: [Register] Resultado de verificación:", { emailExists, rpcError });
 
       if (rpcError) {
-        console.warn("Error en verificación RPC (continuando):", rpcError);
+        console.warn("WARN: [Register] Error en verificación RPC (continuando):", rpcError);
         // Continuamos aunque falle la verificación
       } else if (emailExists) {
-        const friendlyMessage = `El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`;
+        // 🔒 INCREMENTAR INTENTOS POR EMAIL DUPLICADO
+        const newAttempts = SecurityUtils.incrementFailedAttempts(sanitizedEmail);
+        
+        setSecurityState(prev => ({
+          ...prev,
+          emailAttempts: newAttempts.email.count,
+          globalAttempts: newAttempts.global.count
+        }));
+        
+        // Bloquear si alcanza límite
+        if (newAttempts.email.count >= 3) {
+          SecurityUtils.blockAccount(sanitizedEmail, 15, "Múltiples intentos con email existente");
+          setSecurityState(prev => ({
+            ...prev,
+            isBlocked: true,
+            blockRemainingTime: 15,
+            blockReason: "Múltiples intentos con email existente",
+            blockType: "email"
+          }));
+          toast.error("Email bloqueado temporalmente por múltiples intentos");
+          return;
+        }
+        
+        const friendlyMessage = `El correo ${sanitizedEmail} ya está registrado. ¿Ya tienes cuenta?`;
         setEmailError(friendlyMessage);
         toast.error(friendlyMessage);
         setTimeout(() => {
@@ -72,27 +324,47 @@ const Register = () => {
         return;
       }
 
-      console.log("Email disponible, procediendo con registro...");
+      console.log("LOG: [Register] Email disponible, procediendo con registro...");
       
-      // ✅ REGISTRO DIRECTO
+      // ✅ REGISTRO DIRECTO (MANTENER ORIGINAL)
       const { data, error } = await supabase.auth.signUp({
-        email: form.email.toLowerCase().trim(),
+        email: sanitizedEmail,
         password: form.password,
         options: {
           data: {
-            full_name: form.name.trim(),
+            full_name: sanitizedName,
           },
         },
       });
 
-      console.log("Respuesta de registro:", { data, error });
+      console.log("LOG: [Register] Respuesta de registro:", { data, error });
 
       if (error) {
-        console.log("Error de registro completo:", error);
-        console.log("Error message:", error.message);
-        console.log("Error code:", error.status);
+        console.log("LOG: [Register] Error de registro completo:", error);
+        console.log("LOG: [Register] Error message:", error.message);
+        console.log("LOG: [Register] Error code:", error.status);
         
-        // 🎯 MANEJO INTELIGENTE DE ERRORES DE SUPABASE - VERSIÓN AMPLIADA
+        // 🔒 INCREMENTAR INTENTOS POR ERROR
+        const newAttempts = SecurityUtils.incrementFailedAttempts(sanitizedEmail);
+        
+        setSecurityState(prev => ({
+          ...prev,
+          emailAttempts: newAttempts.email.count,
+          globalAttempts: newAttempts.global.count
+        }));
+        
+        // Verificar límites y bloquear si es necesario
+        if (newAttempts.email.count >= 3) {
+          SecurityUtils.blockAccount(sanitizedEmail, 15, "Múltiples errores en registro");
+          toast.error("Email bloqueado temporalmente por múltiples errores");
+        }
+        
+        if (newAttempts.global.count >= 10) {
+          SecurityUtils.blockGlobal(30, "Límite de intentos de registro alcanzado");
+          toast.error("Registro temporalmente bloqueado por límite alcanzado");
+        }
+        
+        // 🎯 MANEJO INTELIGENTE DE ERRORES DE SUPABASE (MANTENER ORIGINAL)
         const errorMessage = error.message.toLowerCase();
         
         // Todos los posibles mensajes de email duplicado
@@ -106,7 +378,7 @@ const Register = () => {
             errorMessage.includes('duplicate') ||
             error.status === 422) { // Status code común para email duplicado
           
-          const friendlyMessage = `El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`;
+          const friendlyMessage = `El correo ${sanitizedEmail} ya está registrado. ¿Ya tienes cuenta?`;
           setEmailError(friendlyMessage);
           toast.error(friendlyMessage);
           setTimeout(() => {
@@ -115,7 +387,7 @@ const Register = () => {
           return;
         }
         
-        // Otros errores específicos con mensajes amigables
+        // Otros errores específicos con mensajes amigables (MANTENER ORIGINAL)
         if (error.message.includes('Invalid email')) {
           const message = 'El formato del correo electrónico no es válido.';
           setEmailError(message);
@@ -150,15 +422,26 @@ const Register = () => {
         // Error genérico
         const genericMessage = "Error al registrar. Intenta de nuevo.";
         toast.error(genericMessage);
-        console.error("Error no manejado específicamente:", error.message);
+        console.error("ERROR: [Register] Error no manejado específicamente:", error.message);
         return;
       }
 
-      // ✅ REGISTRO EXITOSO
+      // ✅ REGISTRO EXITOSO (MANTENER ORIGINAL)
       if (data.user) {
-        console.log("Usuario creado exitosamente:", data.user);
+        console.log("LOG: [Register] Usuario creado exitosamente:", data.user);
         
-        // Verificar si el email ya está confirmado o necesita confirmación
+        // 🔒 LIMPIAR INTENTOS FALLIDOS
+        SecurityUtils.clearFailedAttempts(sanitizedEmail);
+        setSecurityState({
+          emailAttempts: 0,
+          globalAttempts: 0,
+          isBlocked: false,
+          blockRemainingTime: 0,
+          blockReason: "",
+          blockType: ""
+        });
+        
+        // Verificar si el email ya está confirmado o necesita confirmación (MANTENER ORIGINAL)
         if (!data.user.email_confirmed_at) {
           setSuccessMessage("¡Registro exitoso! Por favor, revisa tu correo electrónico para confirmar tu cuenta antes de iniciar sesión.");
           toast.success("¡Cuenta creada exitosamente! Revisa tu email para confirmarla.");
@@ -171,7 +454,15 @@ const Register = () => {
       }
 
     } catch (err) {
-      console.error("Error inesperado durante el registro:", err);
+      console.error("ERROR: [Register] Error inesperado durante el registro:", err);
+      
+      // 🔒 INCREMENTAR INTENTOS POR ERROR INESPERADO
+      const newAttempts = SecurityUtils.incrementFailedAttempts(sanitizedEmail);
+      setSecurityState(prev => ({
+        ...prev,
+        emailAttempts: newAttempts.email.count,
+        globalAttempts: newAttempts.global.count
+      }));
       
       const errorMessage = err.message || "Error inesperado al registrar. Intenta de nuevo.";
       toast.error(errorMessage);
@@ -181,7 +472,57 @@ const Register = () => {
     }
   };
 
-  // Si el registro fue exitoso, mostrar mensaje de confirmación
+  // 🔒 Componente de estado de seguridad
+  const SecurityStatus = () => {
+    if (securityState.isBlocked) {
+      return (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2 text-red-800">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span className="font-medium">
+              {securityState.blockType === 'global' ? 'Registro temporalmente bloqueado' : 'Email temporalmente bloqueado'}
+            </span>
+          </div>
+          <p className="text-red-700 text-sm mt-1">
+            Tiempo restante: {securityState.blockRemainingTime} minutos
+          </p>
+          <p className="text-red-600 text-xs mt-1">
+            Motivo: {securityState.blockReason}
+          </p>
+        </div>
+      );
+    }
+    
+    if (securityState.emailAttempts > 0 || securityState.globalAttempts > 5) {
+      return (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2 text-yellow-800">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <span className="font-medium">Advertencia de seguridad</span>
+          </div>
+          {securityState.emailAttempts > 0 && (
+            <p className="text-yellow-700 text-sm mt-1">
+              {securityState.emailAttempts} intento{securityState.emailAttempts > 1 ? 's' : ''} con este email. 
+              {3 - securityState.emailAttempts} restantes antes del bloqueo.
+            </p>
+          )}
+          {securityState.globalAttempts > 5 && (
+            <p className="text-yellow-700 text-sm mt-1">
+              Múltiples intentos de registro detectados. Usar con precaución.
+            </p>
+          )}
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
+  // Si el registro fue exitoso, mostrar mensaje de confirmación (MANTENER ORIGINAL COMPLETO)
   if (successMessage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-lightpink py-12 px-4 sm:px-6 lg:px-8">
@@ -252,6 +593,9 @@ const Register = () => {
           </p>
         </div>
         
+        {/* 🔒 ESTADO DE SEGURIDAD */}
+        <SecurityStatus />
+        
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             {/* Nombre Completo */}
@@ -269,6 +613,8 @@ const Register = () => {
                 onChange={handleChange}
                 className="relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary"
                 placeholder="Nombre completo"
+                disabled={securityState.isBlocked}
+                maxLength="50"
               />
             </div>
 
@@ -284,14 +630,13 @@ const Register = () => {
                 autoComplete="email"
                 required
                 value={form.email}
-                onChange={(e) => {
-                  handleChange(e);
-                  setEmailError(""); // Limpiar error al empezar a escribir
-                }}
+                onChange={handleChange}
                 className={`relative block w-full px-3 py-3 border placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary ${
                   emailError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="Correo electrónico"
+                disabled={securityState.isBlocked}
+                maxLength="254"
               />
               {emailError && (
                 <div className="mt-1 text-sm text-red-600 flex items-center gap-2">
@@ -323,11 +668,13 @@ const Register = () => {
                 onChange={handleChange}
                 className="relative block w-full px-3 py-3 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary"
                 placeholder="Contraseña"
+                disabled={securityState.isBlocked}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                disabled={securityState.isBlocked}
               >
                 {showPassword ? (
                   <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -360,11 +707,13 @@ const Register = () => {
                 onChange={handleChange}
                 className="relative block w-full px-3 py-3 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary focus:border-primary"
                 placeholder="Confirmar contraseña"
+                disabled={securityState.isBlocked}
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                disabled={securityState.isBlocked}
               >
                 {showConfirmPassword ? (
                   <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -383,7 +732,7 @@ const Register = () => {
             </div>
           </div>
 
-          {/* Requisitos de contraseña */}
+          {/* Requisitos de contraseña (MANTENER ORIGINAL) */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="text-sm font-medium text-gray-700 mb-2">Requisitos de contraseña:</h3>
             <ul className="text-xs text-gray-600 space-y-1">
@@ -409,7 +758,7 @@ const Register = () => {
           <div>
             <button
               type="submit"
-              disabled={!isValid || loading}
+              disabled={!isValid || loading || securityState.isBlocked}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-primary hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-gray-400 disabled:cursor-not-allowed transition"
             >
               {loading ? (
@@ -422,6 +771,12 @@ const Register = () => {
               )}
             </button>
           </div>
+          
+          {securityState.isBlocked && (
+            <div className="text-center text-sm text-gray-500">
+              El formulario está bloqueado temporalmente por seguridad
+            </div>
+          )}
         </form>
       </div>
     </div>

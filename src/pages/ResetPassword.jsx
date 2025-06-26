@@ -100,20 +100,17 @@ const ResetPassword = () => {
           console.log("LOG: [ResetPassword] ¡ENCONTRÉ SESIÓN ACTIVA!", {
             user: sessionData.session.user.email,
             expires_at: sessionData.session.expires_at,
-            token_type: sessionData.session.token_type
+            token_type: sessionData.session.token_type,
+            recovery_sent_at: sessionData.session.user.recovery_sent_at,
+            confirmed_at: sessionData.session.user.confirmed_at,
+            last_sign_in_at: sessionData.session.user.last_sign_in_at
           });
           
-          // Si hay sesión activa, verificar si es una sesión de recovery
-          if (sessionData.session.user.recovery_sent_at) {
-            console.log("LOG: [ResetPassword] Sesión de recovery detectada");
-            setTokenValid(true);
-            toast.success("Sesión de recuperación activa. Establece tu nueva contraseña.");
-            setInitialLoading(false);
-            return;
-          } else {
-            console.log("LOG: [ResetPassword] Sesión normal detectada, cerrando por seguridad...");
-            await supabase.auth.signOut();
-          }
+          // SIEMPRE cerrar cualquier sesión existente por seguridad
+          // Las sesiones de recovery deben manejarse solo con tokens en URL
+          console.log("LOG: [ResetPassword] Cerrando sesión existente por seguridad...");
+          await supabase.auth.signOut();
+          console.log("LOG: [ResetPassword] Sesión cerrada, continuando con verificación de tokens...");
         }
 
         // Buscar tokens en URL
@@ -151,6 +148,13 @@ const ResetPassword = () => {
           tokenHash: tokenHash ? `${tokenHash.substring(0, 20)}...` : null,
           token: token ? `${token.substring(0, 20)}...` : null
         });
+
+        // VALIDACIÓN CRÍTICA: Debe haber tokens en la URL o es un acceso inválido
+        if (!accessToken && !tokenHash && !token) {
+          console.error("ERROR: [ResetPassword] No se encontraron tokens en la URL");
+          console.log("LOG: [ResetPassword] Esta página requiere un enlace válido de recuperación");
+          throw new Error('Acceso directo no permitido. Usa el enlace de recuperación enviado a tu email.');
+        }
 
         // Si no encontramos access_token pero tenemos otros tokens, intentar diferentes flujos
         if (!accessToken) {
@@ -250,8 +254,8 @@ const ResetPassword = () => {
         
         // Mensajes de error más user-friendly
         let userMessage = err.message;
-        if (err.message.includes('No se encontraron tokens')) {
-          userMessage = 'El enlace de recuperación es incompleto. Verifica que uses el enlace completo del email.';
+        if (err.message.includes('No se encontraron tokens') || err.message.includes('Acceso directo no permitido')) {
+          userMessage = 'Esta página solo es accesible através del enlace de recuperación enviado a tu email. No se puede acceder directamente.';
         } else if (err.message.includes('expirado') || err.message.includes('expired')) {
           userMessage = 'El enlace de recuperación ha expirado. Los enlaces son válidos por tiempo limitado por seguridad.';
         } else if (err.message.includes('inválido') || err.message.includes('invalid')) {

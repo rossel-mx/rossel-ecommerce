@@ -68,7 +68,21 @@ const ResetPassword = () => {
       console.log("LOG: [ResetPassword] Verificando token de recuperación...");
       
       try {
-        // Obtener parámetros tanto de query params como de hash fragments
+        // Primero verificar si ya hay una sesión activa (Supabase auto-login)
+        const { data: sessionData } = await supabase.auth.getSession();
+        
+        if (sessionData.session) {
+          console.log("LOG: [ResetPassword] Sesión ya activa detectada:", sessionData.session.user?.email);
+          console.log("LOG: [ResetPassword] Tipo de sesión:", sessionData.session?.user?.aud);
+          
+          // Si hay sesión activa, probablemente Supabase ya procesó el token
+          setTokenValid(true);
+          toast.success("Sesión de recuperación activa. Puedes cambiar tu contraseña.");
+          setInitialLoading(false);
+          return;
+        }
+
+        // Si no hay sesión activa, buscar tokens en la URL
         let accessToken = searchParams.get('access_token');
         let refreshToken = searchParams.get('refresh_token');
         let type = searchParams.get('type');
@@ -151,7 +165,40 @@ const ResetPassword = () => {
     console.log("LOG: [ResetPassword] Iniciando actualización de contraseña...");
 
     try {
-      // Usar los tokens guardados para el reset
+      // Verificar si ya tenemos una sesión activa
+      const { data: currentSession } = await supabase.auth.getSession();
+      
+      if (currentSession.session) {
+        console.log("LOG: [ResetPassword] Usando sesión activa para actualizar contraseña");
+        
+        // Actualizar contraseña directamente con la sesión existente
+        const { data, error } = await supabase.auth.updateUser({
+          password: form.password
+        });
+
+        if (error) {
+          console.error("ERROR: [ResetPassword] Error al actualizar contraseña:", error);
+          throw error;
+        }
+
+        console.log("LOG: [ResetPassword] Contraseña actualizada exitosamente");
+        setSuccessMessage("¡Contraseña actualizada exitosamente!");
+        toast.success("¡Tu contraseña ha sido actualizada exitosamente!");
+
+        // Cerrar sesión y redirigir al login después de 3 segundos
+        setTimeout(async () => {
+          await supabase.auth.signOut();
+          navigate("/login", { 
+            state: { 
+              message: "Contraseña actualizada. Inicia sesión con tu nueva contraseña." 
+            }
+          });
+        }, 3000);
+
+        return;
+      }
+
+      // Si no hay sesión activa, usar tokens guardados
       const tokens = window.resetTokens;
       if (!tokens) {
         throw new Error('No se encontraron tokens de sesión');
@@ -168,7 +215,6 @@ const ResetPassword = () => {
       if (sessionError) {
         console.error("ERROR: [ResetPassword] Error al establecer sesión:", sessionError);
         
-        // Mensajes específicos para diferentes errores de sesión
         if (sessionError.message.includes('expired') || sessionError.message.includes('invalid')) {
           throw new Error('El enlace de recuperación ha expirado. Solicita uno nuevo.');
         }

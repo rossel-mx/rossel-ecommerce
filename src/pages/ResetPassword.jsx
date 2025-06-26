@@ -93,28 +93,31 @@ const ResetPassword = () => {
           throw new Error('Token de recuperación inválido o faltante');
         }
 
-        // Establecer la sesión con el token de recuperación
-        const { data, error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken
-        });
-
-        if (error) {
-          console.error("ERROR: [ResetPassword] Error al establecer sesión:", error);
-          throw error;
-        }
-
-        if (data.user) {
-          console.log("LOG: [ResetPassword] Token válido, usuario autenticado:", data.user.email);
+        // En lugar de setSession, solo verificamos que el token sea válido
+        // decodificando el JWT (sin hacer llamada a Supabase que podría invalidarlo)
+        try {
+          const tokenPayload = JSON.parse(atob(accessToken.split('.')[1]));
+          const isExpired = tokenPayload.exp * 1000 < Date.now();
+          
+          if (isExpired) {
+            throw new Error('El token ha expirado');
+          }
+          
+          console.log("LOG: [ResetPassword] Token válido, usuario:", tokenPayload.email);
           setTokenValid(true);
           toast.success("Token válido. Puedes establecer tu nueva contraseña.");
           
-          // Limpiar la URL para que se vea más limpia (opcional)
+          // Guardamos los tokens para usarlos en el reset
+          window.resetTokens = { accessToken, refreshToken };
+          
+          // Limpiar la URL para que se vea más limpia
           if (window.location.hash) {
             window.history.replaceState(null, '', window.location.pathname);
           }
-        } else {
-          throw new Error('No se pudo autenticar con el token proporcionado');
+          
+        } catch (decodeError) {
+          console.error("ERROR: [ResetPassword] Error decodificando token:", decodeError);
+          throw new Error('Token malformado o inválido');
         }
 
       } catch (err) {
@@ -143,6 +146,23 @@ const ResetPassword = () => {
     console.log("LOG: [ResetPassword] Iniciando actualización de contraseña...");
 
     try {
+      // Usar los tokens guardados para establecer sesión solo para el reset
+      const tokens = window.resetTokens;
+      if (!tokens) {
+        throw new Error('No se encontraron tokens de sesión');
+      }
+
+      // Establecer sesión temporalmente para el reset
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken
+      });
+
+      if (sessionError) {
+        console.error("ERROR: [ResetPassword] Error al establecer sesión:", sessionError);
+        throw sessionError;
+      }
+
       // Actualizar la contraseña del usuario
       const { data, error } = await supabase.auth.updateUser({
         password: form.password
@@ -172,10 +192,12 @@ const ResetPassword = () => {
       
       let errorMessage = "Error al actualizar la contraseña. Intenta de nuevo.";
       
-      if (err.message.includes('session_not_found')) {
+      if (err.message.includes('session_not_found') || err.message.includes('Invalid session')) {
         errorMessage = "La sesión ha expirado. Solicita un nuevo enlace de recuperación.";
       } else if (err.message.includes('same_password')) {
         errorMessage = "La nueva contraseña debe ser diferente a la actual.";
+      } else if (err.message.includes('Invalid login credentials')) {
+        errorMessage = "El enlace de recuperación ha expirado. Solicita uno nuevo.";
       }
       
       toast.error(errorMessage);
@@ -214,17 +236,14 @@ const ResetPassword = () => {
           </p>
           <div className="space-y-3">
             <button
-              onClick={() => navigate("/forgot-password")}
+              onClick={() => navigate("/login")}
               className="w-full bg-gradient-to-r from-primary to-red-700 text-white px-6 py-3 rounded-xl hover:from-red-600 hover:to-red-800 transition-all duration-300 transform hover:scale-105 shadow-lg font-medium"
             >
-              Solicitar Nuevo Enlace
+              Ir al Login
             </button>
-            <button
-              onClick={() => navigate("/login")}
-              className="w-full text-gray-600 hover:text-primary transition font-medium"
-            >
-              Volver al Login
-            </button>
+            <p className="text-center text-sm text-red-600">
+              Puedes solicitar un nuevo enlace desde la página de login haciendo clic en "¿Olvidaste tu contraseña?"
+            </p>
           </div>
         </div>
       </div>

@@ -68,15 +68,25 @@ const ResetPassword = () => {
       console.log("LOG: [ResetPassword] Verificando token de recuperación...");
       
       try {
-        // Obtener parámetros de la URL
-        const accessToken = searchParams.get('access_token');
-        const refreshToken = searchParams.get('refresh_token');
-        const type = searchParams.get('type');
+        // Obtener parámetros tanto de query params como de hash fragments
+        let accessToken = searchParams.get('access_token');
+        let refreshToken = searchParams.get('refresh_token');
+        let type = searchParams.get('type');
         
-        console.log("LOG: [ResetPassword] Parámetros recibidos:", { 
+        // Si no están en query params, buscar en hash fragments
+        if (!accessToken && window.location.hash) {
+          console.log("LOG: [ResetPassword] Buscando tokens en hash fragments...");
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          accessToken = hashParams.get('access_token');
+          refreshToken = hashParams.get('refresh_token');
+          type = hashParams.get('type');
+        }
+        
+        console.log("LOG: [ResetPassword] Parámetros encontrados:", { 
           hasAccessToken: !!accessToken, 
           hasRefreshToken: !!refreshToken, 
-          type 
+          type,
+          source: window.location.hash ? 'hash' : 'query'
         });
 
         if (!accessToken || type !== 'recovery') {
@@ -98,6 +108,11 @@ const ResetPassword = () => {
           console.log("LOG: [ResetPassword] Token válido, usuario autenticado:", data.user.email);
           setTokenValid(true);
           toast.success("Token válido. Puedes establecer tu nueva contraseña.");
+          
+          // Limpiar la URL para que se vea más limpia (opcional)
+          if (window.location.hash) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
         } else {
           throw new Error('No se pudo autenticar con el token proporcionado');
         }

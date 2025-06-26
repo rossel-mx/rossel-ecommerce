@@ -86,12 +86,31 @@ const ResetPassword = () => {
           hasAccessToken: !!accessToken, 
           hasRefreshToken: !!refreshToken, 
           type,
-          source: window.location.hash ? 'hash' : 'query'
+          source: window.location.hash ? 'hash' : 'query',
+          accessTokenLength: accessToken ? accessToken.length : 0,
+          refreshTokenLength: refreshToken ? refreshToken.length : 0,
+          exactType: type,
+          actualHash: window.location.hash,
+          actualSearch: window.location.search
         });
 
-        if (!accessToken || type !== 'recovery') {
-          throw new Error('Token de recuperación inválido o faltante');
+        console.log("LOG: [ResetPassword] Valores exactos:", {
+          accessToken: accessToken ? accessToken.substring(0, 50) + '...' : null,
+          refreshToken: refreshToken ? refreshToken.substring(0, 20) + '...' : null,
+          type: `"${type}"`
+        });
+
+        if (!accessToken) {
+          console.error("ERROR: [ResetPassword] accessToken está vacío o null");
+          throw new Error('Token de acceso faltante');
         }
+
+        if (type !== 'recovery') {
+          console.error("ERROR: [ResetPassword] Tipo incorrecto. Esperado: 'recovery', Recibido:", `"${type}"`);
+          throw new Error(`Tipo de token incorrecto: ${type}`);
+        }
+
+        console.log("LOG: [ResetPassword] Validación básica pasada, continuando...");
 
         // Guardamos los tokens para usarlos más tarde
         window.resetTokens = { accessToken, refreshToken };

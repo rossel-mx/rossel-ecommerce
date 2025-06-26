@@ -13,14 +13,14 @@
                    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://*.supabase.co https://js.stripe.com https://checkout.stripe.com https://maps.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com; 
                    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; 
                    img-src 'self' data: https: blob:; 
-                   font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; 
+                   font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; 
                    connect-src 'self' https://*.supabase.co https://api.stripe.com https://checkout.stripe.com https://www.google-analytics.com https://vitals.vercel-analytics.com wss://*.supabase.co; 
                    frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com; 
                    object-src 'none'; 
                    base-uri 'self'; 
-                   form-action 'self';">
+                   form-action 'self';">;
     
-    <!-- X-Frame-Options: Previene ataques de clickjacking -->
+    <!-- X-Frame-Options: Previene ataques de clickjacking (también manejado por CSP) -->
     <meta http-equiv="X-Frame-Options" content="DENY">
     
     <!-- X-Content-Type-Options: Previene ataques de MIME sniffing -->

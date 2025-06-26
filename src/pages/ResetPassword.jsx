@@ -93,37 +93,23 @@ const ResetPassword = () => {
           throw new Error('Token de recuperación inválido o faltante');
         }
 
-        // En lugar de setSession, solo verificamos que el token sea válido
-        // decodificando el JWT (sin hacer llamada a Supabase que podría invalidarlo)
-        try {
-          const tokenPayload = JSON.parse(atob(accessToken.split('.')[1]));
-          const isExpired = tokenPayload.exp * 1000 < Date.now();
-          
-          if (isExpired) {
-            throw new Error('El token ha expirado');
-          }
-          
-          console.log("LOG: [ResetPassword] Token válido, usuario:", tokenPayload.email);
-          setTokenValid(true);
-          toast.success("Token válido. Puedes establecer tu nueva contraseña.");
-          
-          // Guardamos los tokens para usarlos en el reset
-          window.resetTokens = { accessToken, refreshToken };
-          
-          // Limpiar la URL para que se vea más limpia
-          if (window.location.hash) {
-            window.history.replaceState(null, '', window.location.pathname);
-          }
-          
-        } catch (decodeError) {
-          console.error("ERROR: [ResetPassword] Error decodificando token:", decodeError);
-          throw new Error('Token malformado o inválido');
+        // Guardamos los tokens para usarlos más tarde
+        window.resetTokens = { accessToken, refreshToken };
+        
+        // Simplemente mostramos que el token está presente y es del tipo correcto
+        console.log("LOG: [ResetPassword] Token de recuperación detectado");
+        setTokenValid(true);
+        toast.success("Enlace de recuperación válido. Establece tu nueva contraseña.");
+        
+        // Limpiar la URL para que se vea más limpia
+        if (window.location.hash) {
+          window.history.replaceState(null, '', window.location.pathname);
         }
 
       } catch (err) {
         console.error("ERROR: [ResetPassword] Error en verificación de token:", err);
         setTokenValid(false);
-        toast.error("El enlace de recuperación es inválido o ha expirado.");
+        toast.error("El enlace de recuperación es inválido o faltante.");
       } finally {
         setInitialLoading(false);
       }
@@ -146,22 +132,35 @@ const ResetPassword = () => {
     console.log("LOG: [ResetPassword] Iniciando actualización de contraseña...");
 
     try {
-      // Usar los tokens guardados para establecer sesión solo para el reset
+      // Usar los tokens guardados para el reset
       const tokens = window.resetTokens;
       if (!tokens) {
         throw new Error('No se encontraron tokens de sesión');
       }
 
-      // Establecer sesión temporalmente para el reset
-      const { error: sessionError } = await supabase.auth.setSession({
+      console.log("LOG: [ResetPassword] Estableciendo sesión con tokens...");
+
+      // Establecer sesión con los tokens originales
+      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken
       });
 
       if (sessionError) {
         console.error("ERROR: [ResetPassword] Error al establecer sesión:", sessionError);
+        
+        // Mensajes específicos para diferentes errores de sesión
+        if (sessionError.message.includes('expired') || sessionError.message.includes('invalid')) {
+          throw new Error('El enlace de recuperación ha expirado. Solicita uno nuevo.');
+        }
         throw sessionError;
       }
+
+      if (!sessionData.user) {
+        throw new Error('No se pudo autenticar con el enlace de recuperación');
+      }
+
+      console.log("LOG: [ResetPassword] Sesión establecida, actualizando contraseña para:", sessionData.user.email);
 
       // Actualizar la contraseña del usuario
       const { data, error } = await supabase.auth.updateUser({
@@ -170,6 +169,13 @@ const ResetPassword = () => {
 
       if (error) {
         console.error("ERROR: [ResetPassword] Error al actualizar contraseña:", error);
+        
+        if (error.message.includes('session_not_found')) {
+          throw new Error('La sesión ha expirado. Solicita un nuevo enlace de recuperación.');
+        } else if (error.message.includes('same_password')) {
+          throw new Error('La nueva contraseña debe ser diferente a la actual.');
+        }
+        
         throw error;
       }
 
@@ -188,19 +194,16 @@ const ResetPassword = () => {
       }, 3000);
 
     } catch (err) {
-      console.error("ERROR: [ResetPassword] Error al actualizar contraseña:", err);
+      console.error("ERROR: [ResetPassword] Error completo:", err);
       
-      let errorMessage = "Error al actualizar la contraseña. Intenta de nuevo.";
+      let errorMessage = err.message || "Error al actualizar la contraseña. Intenta de nuevo.";
+      toast.error(errorMessage);
       
-      if (err.message.includes('session_not_found') || err.message.includes('Invalid session')) {
-        errorMessage = "La sesión ha expirado. Solicita un nuevo enlace de recuperación.";
-      } else if (err.message.includes('same_password')) {
-        errorMessage = "La nueva contraseña debe ser diferente a la actual.";
-      } else if (err.message.includes('Invalid login credentials')) {
-        errorMessage = "El enlace de recuperación ha expirado. Solicita uno nuevo.";
+      // Si el error es de sesión expirada, marcar token como inválido
+      if (err.message.includes('expirado') || err.message.includes('expired')) {
+        setTokenValid(false);
       }
       
-      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

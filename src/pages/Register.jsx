@@ -14,7 +14,7 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [matchError, setMatchError] = useState("");
-  const [emailError, setEmailError] = useState(""); // Nuevo estado para errores de email
+  const [emailError, setEmailError] = useState("");
   const [isValid, setIsValid] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,43 +50,31 @@ const Register = () => {
     setEmailError(""); // Limpiar errores previos
 
     try {
-      console.log("Verificando si el email ya existe en la base de datos:", form.email);
+      console.log("Iniciando registro para:", form.email);
       
-      // 🔍 VERIFICACIÓN PREVIA: Buscar si ya existe un perfil con este email
-      // Como no podemos buscar directamente en auth.users, intentamos hacer login
-      const { data: loginAttempt, error: loginError } = await supabase.auth.signInWithPassword({
-        email: form.email.toLowerCase().trim(),
-        password: 'password-temporal-para-verificar-123456' // Contraseña falsa
-      });
+      // 🔍 VERIFICACIÓN PREVIA con función RPC
+      console.log("Verificando si el email ya existe...");
+      const { data: emailExists, error: rpcError } = await supabase
+        .rpc('check_email_exists', { email_to_check: form.email.toLowerCase().trim() });
 
-      console.log("Resultado de verificación de login:", { loginAttempt, loginError });
+      console.log("Resultado de verificación:", { emailExists, rpcError });
 
-      // Analizar el error para determinar si el email existe
-      if (loginError) {
-        // Si el error NO es "Invalid login credentials", el email podría existir
-        if (loginError.message.includes('Email not confirmed') || 
-            loginError.message.includes('Email address not confirmed') ||
-            loginError.message.includes('Email link is invalid or has expired')) {
-          throw new Error(`El correo ${form.email} ya está registrado pero no confirmado. Revisa tu email o intenta hacer login.`);
-        }
-        
-        // Si es "Invalid login credentials", significa que el email existe pero la contraseña es incorrecta
-        if (loginError.message.includes('Invalid login credentials') && 
-            !loginError.message.includes('Email not confirmed')) {
-          throw new Error(`El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`);
-        }
-        
-        // Otros errores de login indican que el email podría existir
-        if (!loginError.message.includes('Invalid login credentials') && 
-            !loginError.message.includes('User not found')) {
-          console.log("Posible email existente detectado por error:", loginError.message);
-          throw new Error(`El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`);
-        }
+      if (rpcError) {
+        console.warn("Error en verificación RPC (continuando):", rpcError);
+        // Continuamos aunque falle la verificación
+      } else if (emailExists) {
+        const friendlyMessage = `El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`;
+        setEmailError(friendlyMessage);
+        toast.error(friendlyMessage);
+        setTimeout(() => {
+          document.getElementById('email')?.focus();
+        }, 100);
+        return;
       }
 
-      // Si llegamos aquí, el email probablemente no existe, proceder con registro
-      console.log("Email parece estar disponible, procediendo con el registro...");
+      console.log("Email disponible, procediendo con registro...");
       
+      // ✅ REGISTRO DIRECTO
       const { data, error } = await supabase.auth.signUp({
         email: form.email.toLowerCase().trim(),
         password: form.password,
@@ -100,41 +88,82 @@ const Register = () => {
       console.log("Respuesta de registro:", { data, error });
 
       if (error) {
-        console.log("Error de registro:", error.message);
+        console.log("Error de registro completo:", error);
+        console.log("Error message:", error.message);
+        console.log("Error code:", error.status);
         
-        if (error.message.includes('User already registered') || 
-            error.message.includes('Email address is already registered') ||
-            error.message.includes('A user with this email address has already been registered') ||
-            error.message.includes('Email address already registered')) {
-          throw new Error(`El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`);
+        // 🎯 MANEJO INTELIGENTE DE ERRORES DE SUPABASE - VERSIÓN AMPLIADA
+        const errorMessage = error.message.toLowerCase();
+        
+        // Todos los posibles mensajes de email duplicado
+        if (errorMessage.includes('user already registered') || 
+            errorMessage.includes('email address is already registered') ||
+            errorMessage.includes('a user with this email address has already been registered') ||
+            errorMessage.includes('email address already registered') ||
+            errorMessage.includes('email already exists') ||
+            errorMessage.includes('email already in use') ||
+            errorMessage.includes('user with this email already exists') ||
+            errorMessage.includes('duplicate') ||
+            error.status === 422) { // Status code común para email duplicado
+          
+          const friendlyMessage = `El correo ${form.email} ya está registrado. ¿Ya tienes cuenta?`;
+          setEmailError(friendlyMessage);
+          toast.error(friendlyMessage);
+          setTimeout(() => {
+            document.getElementById('email')?.focus();
+          }, 100);
+          return;
         }
         
-        // Otros errores
+        // Otros errores específicos con mensajes amigables
         if (error.message.includes('Invalid email')) {
-          throw new Error('El formato del correo electrónico no es válido.');
-        }
-        if (error.message.includes('Password should be at least')) {
-          throw new Error('La contraseña debe tener al menos 6 caracteres.');
-        }
-        if (error.message.includes('Email rate limit exceeded')) {
-          throw new Error('Se han enviado demasiados emails. Espera unos minutos antes de intentar de nuevo.');
-        }
-        if (error.message.includes('Signup is disabled')) {
-          throw new Error('El registro de nuevos usuarios está temporalmente deshabilitado.');
+          const message = 'El formato del correo electrónico no es válido.';
+          setEmailError(message);
+          toast.error(message);
+          return;
         }
         
-        throw new Error(error.message || "Error al registrar. Intenta de nuevo.");
+        if (error.message.includes('Password should be at least')) {
+          const message = 'La contraseña debe tener al menos 6 caracteres.';
+          toast.error(message);
+          return;
+        }
+        
+        if (error.message.includes('Email rate limit exceeded')) {
+          const message = 'Se han enviado demasiados emails. Espera unos minutos antes de intentar de nuevo.';
+          toast.error(message);
+          return;
+        }
+        
+        if (error.message.includes('Signup is disabled')) {
+          const message = 'El registro de nuevos usuarios está temporalmente deshabilitado.';
+          toast.error(message);
+          return;
+        }
+
+        if (error.message.includes('Email link is invalid or has expired')) {
+          const message = 'El enlace de confirmación ha expirado. Se enviará un nuevo email de confirmación.';
+          toast.error(message);
+          return;
+        }
+        
+        // Error genérico
+        const genericMessage = "Error al registrar. Intenta de nuevo.";
+        toast.error(genericMessage);
+        console.error("Error no manejado específicamente:", error.message);
+        return;
       }
 
-      // ✅ Registro exitoso
+      // ✅ REGISTRO EXITOSO
       if (data.user) {
         console.log("Usuario creado exitosamente:", data.user);
         
+        // Verificar si el email ya está confirmado o necesita confirmación
         if (!data.user.email_confirmed_at) {
-          setSuccessMessage("¡Registro exitoso! Por favor, revisa tu correo electrónico para confirmar tu cuenta.");
-          toast.success("¡Cuenta creada exitosamente! Revisa tu email.");
+          setSuccessMessage("¡Registro exitoso! Por favor, revisa tu correo electrónico para confirmar tu cuenta antes de iniciar sesión.");
+          toast.success("¡Cuenta creada exitosamente! Revisa tu email para confirmarla.");
         } else {
-          setSuccessMessage("¡Registro exitoso! Tu cuenta ha sido creada y confirmada.");
+          setSuccessMessage("¡Registro exitoso! Tu cuenta ha sido creada y confirmada. Ya puedes iniciar sesión.");
           toast.success("¡Cuenta creada y confirmada exitosamente!");
         }
       } else {
@@ -142,17 +171,10 @@ const Register = () => {
       }
 
     } catch (err) {
-      console.error("Error durante el registro:", err);
+      console.error("Error inesperado durante el registro:", err);
       
-      const errorMessage = err.message || "Error al registrar. Intenta de nuevo.";
+      const errorMessage = err.message || "Error inesperado al registrar. Intenta de nuevo.";
       toast.error(errorMessage);
-      
-      if (err.message.includes('ya está registrado')) {
-        setEmailError(err.message);
-        setTimeout(() => {
-          document.getElementById('email')?.focus();
-        }, 100);
-      }
       
     } finally {
       setLoading(false);

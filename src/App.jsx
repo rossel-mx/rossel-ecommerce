@@ -1,7 +1,8 @@
 /**
- * App.jsx (Versión Completa con Panel de Usuario)
+ * App.jsx (Versión Completa con Panel de Usuario y Reset Password)
  * ------------------------------------------------
  * Este es el componente raíz que define la estructura de las rutas de toda la aplicación.
+ * Incluye la nueva ruta para el restablecimiento de contraseña.
  */
 import { Routes, Route, useLocation } from "react-router-dom";
 
@@ -16,6 +17,7 @@ import Products from "./pages/Products";
 import Cart from "./pages/Cart";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ResetPassword from "./pages/ResetPassword"; // 🔑 NUEVA IMPORTACIÓN
 import CheckoutPage from "./pages/CheckoutPage";
 import AdminPanel from "./pages/AdminPanel";
 
@@ -56,6 +58,9 @@ function App() {
           <Route path="/products/:productId" element={<ProductDetailPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          
+          {/* --- 🔑 NUEVA RUTA PARA RESET PASSWORD --- */}
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* --- Rutas para las páginas informativas --- */}
           <Route path="/contacto" element={<ContactPage />} />

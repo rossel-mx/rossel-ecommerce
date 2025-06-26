@@ -18,8 +18,8 @@
                    frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com; 
                    object-src 'none'; 
                    base-uri 'self'; 
-                   form-action 'self';">;
-    
+                   form-action 'self';">
+  
     <!-- X-Frame-Options: Previene ataques de clickjacking (también manejado por CSP) -->
     <meta http-equiv="X-Frame-Options" content="DENY">
     
@@ -51,7 +51,7 @@
     <meta http-equiv="X-DNS-Prefetch-Control" content="on">
     
     <!-- Strict Transport Security (solo funciona con HTTPS en producción) -->
-    <meta http-equiv="Strict-Transport-Security" content="max-age=31536000; includeSubDomains; preload">
+    <!-- <meta http-equiv="Strict-Transport-Security" content="max-age=31536000; includeSubDomains; preload"> -->
     
     <link rel="icon" type="image/webp" href="/rossel-logo.webp" />
     <title>Rossel | Con estilo propio</title>

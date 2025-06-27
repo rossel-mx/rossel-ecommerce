@@ -157,7 +157,7 @@ const Products = () => {
     setSelectedProduct(null);
   };
 
-  const categories = ["all", "Bolsas", "Carteras", "Mochilas"]; // Ajusta según tus categorías
+  const categories = ["all", "camisetas", "pantalones", "accesorios"]; // Ajusta según tus categorías
   const priceRanges = [
     { value: "all", label: "Todos los precios" },
     { value: "0-500", label: "$0 - $500" },
@@ -169,7 +169,7 @@ const Products = () => {
   return (
     <>
       {/* Hero Section con gradiente moderno */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-900 via-indigo-800 to-blue-900">
+      <div className="relative overflow-hidden bg-gradient-to-br from-lightpink via-red-500 to-red-800">
         {/* Elementos decorativos de fondo */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
@@ -181,13 +181,13 @@ const Products = () => {
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="text-center">
             <div className="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium mb-6 animate-bounce">
-              <FiZap className="w-4 h-4 mr-2" />
+              <FiZap className="w-4 h-4 mr-2 text-yellow-400" />
               Nueva Colección 2025
             </div>
             
             <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight mb-6">
               Descubre Tu
-              <span className="block bg-gradient-to-r from-pink-400 to-violet-400 bg-clip-text text-transparent">
+              <span className="block bg-gradient-to-r from-white via-yellow-200 to-yellow-400 bg-clip-text text-transparent">
                 Estilo Único
               </span>
             </h1>

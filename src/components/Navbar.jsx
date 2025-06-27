@@ -66,10 +66,10 @@ const Navbar = () => {
   const isTransparent = location.pathname === '/' && scrollPosition < 50;
   console.log(`LOG: [Navbar] Navbar transparente: ${isTransparent} (Ruta: ${location.pathname}, Scroll: ${scrollPosition})`);
 
-  // ACTUALIZADO: Padding optimizado para evitar que la navbar se vea muy ancha
+ // ACTUALIZADO: Color de navbar que conecta con el gradiente del hero
   const navbarClasses = `
     w-full fixed top-0 left-0 z-50 transition-all duration-300 ease-in-out px-4 py-3 md:py-2 lg:py-1
-    ${isTransparent ? 'bg-transparent' : 'bg-[#CD919E] shadow-lg'}
+    ${isTransparent ? 'bg-transparent' : 'bg-red-300 shadow-lg'}
   `;
   
   // --- MANEJADORES DE EVENTOS ---

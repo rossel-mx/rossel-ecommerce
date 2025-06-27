@@ -154,13 +154,25 @@ const Home = () => {
   return (
     <>
       <main className="bg-lightpink">
-        {/* SECCIÓN HÉROE */}
-        <section 
-          className="relative h-screen flex items-center justify-center text-center text-white bg-cover bg-center"
-          style={{ backgroundImage: "url('/banner/banner-hero.webp')" }}
-        >
-          <div className="absolute inset-0 bg-black bg-opacity-40"></div>
-          <div className="relative z-10 p-4">
+        {/* SECCIÓN HÉROE CON SLIDER FUNCIONANDO */}
+        <section className="relative h-screen flex items-center justify-center text-center text-white overflow-hidden">
+          {/* Slides de fondo */}
+          {slides.map((slide, index) => (
+            <div
+              key={index}
+              className={`
+                absolute inset-0 bg-cover bg-center transition-opacity duration-1000 ease-in-out
+                ${index === currentSlide ? 'opacity-100' : 'opacity-0'}
+              `}
+              style={{ backgroundImage: `url('${slide}')` }}
+            />
+          ))}
+          
+          {/* Overlay oscuro */}
+          <div className="absolute inset-0 bg-black bg-opacity-40 z-10"></div>
+          
+          {/* Contenido */}
+          <div className="relative z-20 p-4">
             <Fade direction="down" cascade damping={0.3} triggerOnce>
               <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight">
                 Estilo que te Acompaña a Cada Paso

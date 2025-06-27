@@ -1,181 +1,13 @@
 /**
  * @file Home.jsx - Actualizado con categorías de video interactivas
- * @description Página de inicio con la nueva sección de categorías con videos
+ * @description Página de inicio con la nueva sección de categorías con videos navegables
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabaseClient";
 import ProductCard from "../components/ProductCard";
 import ProductDetailModal from "../components/ProductDetailModal";
 import { Fade, Slide } from "react-awesome-reveal";
-
-// NUEVO: Componente de categorías interactivas
-const InteractiveVideoCategories = () => {
-  const [hoveredCategory, setHoveredCategory] = useState(null);
-  const videoRefs = useState({})[0];
-
-  // Configuración de categorías
-  const categories = [
-    {
-      id: 'bolsas',
-      title: 'Bolsas de Mano',
-      video: '/categories/bolsas.webm',
-      description: 'Elegancia y funcionalidad en cada diseño'
-    },
-    {
-      id: 'mochilas', 
-      title: 'Mochilas',
-      video: '/categories/mochilas.webm',
-      description: 'Estilo urbano para tu día a día'
-    },
-    {
-      id: 'carteras',
-      title: 'Carteras de Fiesta',
-      video: '/categories/carteras.webm', 
-      description: 'Sofisticación para ocasiones especiales'
-    }
-  ];
-
-  // Manejadores de eventos
-  const handleMouseEnter = async (categoryId) => {
-    setHoveredCategory(categoryId);
-    const video = videoRefs[categoryId];
-    if (video) {
-      try {
-        video.currentTime = 0; // Resetear al inicio
-        await video.play();
-      } catch (error) {
-        console.log('Error al reproducir video:', error);
-      }
-    }
-  };
-
-  const handleMouseLeave = (categoryId) => {
-    setHoveredCategory(null);
-    const video = videoRefs[categoryId];
-    if (video) {
-      video.pause();
-      video.currentTime = 0; // Volver al primer frame
-    }
-  };
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 text-center">
-      <Slide direction="down" triggerOnce>
-        <h2 className="text-3xl font-bold text-primary mb-4">Nuestras Categorías</h2>
-        <p className="text-gray-600 mb-12 max-w-2xl mx-auto">
-          Descubre nuestra colección cuidadosamente curada para cada momento de tu vida
-        </p>
-      </Slide>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
-        {categories.map((category, index) => {
-          const isHovered = hoveredCategory === category.id;
-          const isOtherHovered = hoveredCategory && hoveredCategory !== category.id;
-
-          return (
-            <div
-              key={category.id}
-              className={`
-                group relative overflow-hidden rounded-2xl shadow-xl cursor-pointer
-                transition-all duration-700 ease-out transform-gpu
-                ${isHovered 
-                  ? 'scale-110 z-20 shadow-2xl' 
-                  : isOtherHovered 
-                    ? 'scale-95 opacity-75' 
-                    : 'scale-100 hover:scale-105'
-                }
-              `}
-              onMouseEnter={() => handleMouseEnter(category.id)}
-              onMouseLeave={() => handleMouseLeave(category.id)}
-              style={{
-                transitionDelay: isHovered ? '0ms' : `${index * 100}ms`
-              }}
-            >
-              {/* Video Background */}
-              <div className="relative w-full aspect-[4/3] overflow-hidden">
-                <video
-                  ref={(el) => (videoRefs[category.id] = el)}
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                >
-                  <source src={category.video} type="video/webm" />
-                  Tu navegador no soporta videos HTML5.
-                </video>
-
-                {/* Overlay con gradiente */}
-                <div className={`
-                  absolute inset-0 transition-all duration-700
-                  ${isHovered 
-                    ? 'bg-gradient-to-t from-black/60 via-black/20 to-transparent' 
-                    : 'bg-gradient-to-t from-black/70 via-black/30 to-black/10'
-                  }
-                `}></div>
-
-                {/* Contenido superpuesto */}
-                <div className="absolute inset-0 flex flex-col justify-end p-6 text-white">
-                  <div className={`
-                    transform transition-all duration-500
-                    ${isHovered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-90'}
-                  `}>
-                    <h3 className={`
-                      font-bold text-white mb-2 transition-all duration-300
-                      ${isHovered ? 'text-2xl' : 'text-xl'}
-                    `}>
-                      {category.title}
-                    </h3>
-                    
-                    <p className={`
-                      text-gray-200 text-sm leading-relaxed transition-all duration-500
-                      ${isHovered ? 'opacity-100 transform translate-y-0' : 'opacity-0 transform translate-y-4'}
-                    `}>
-                      {category.description}
-                    </p>
-                  </div>
-
-                  {/* Indicador de reproducción */}
-                  {isHovered && (
-                    <div className="absolute top-4 right-4 animate-pulse">
-                      <div className="bg-white/20 backdrop-blur-sm rounded-full p-2">
-                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z"/>
-                        </svg>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Borde brillante en hover */}
-                <div className={`
-                  absolute inset-0 rounded-2xl transition-all duration-300 pointer-events-none
-                  ${isHovered 
-                    ? 'ring-4 ring-primary/50 ring-offset-2 ring-offset-white' 
-                    : ''
-                  }
-                `}></div>
-              </div>
-
-              {/* Efecto de resplandor en hover */}
-              {isHovered && (
-                <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 to-red-500/20 rounded-3xl blur-xl opacity-75 animate-pulse -z-10"></div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Indicaciones sutiles para el usuario */}
-      <div className="mt-8 text-center">
-        <p className="text-sm text-gray-500 italic">
-          ✨ Pasa el mouse sobre cada categoría para ver más
-        </p>
-      </div>
-    </div>
-  );
-};
 
 // Imágenes del banner
 const slides = [
@@ -193,6 +25,9 @@ const Home = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // --- HOOK DE NAVEGACIÓN ---
+  const navigate = useNavigate();
 
   // --- LÓGICA DE DATOS CON NUEVAS FUNCIONES RPC ---
   useEffect(() => {
@@ -273,6 +108,184 @@ const Home = () => {
   const favoriteImageUrl = weeklyFavorite?.image_url || '/rossel-placeholder.webp';
   const isPlaceholderImage = !weeklyFavorite?.image_url || weeklyFavorite.image_url === '/rossel-placeholder.webp';
   const favoriteImageFitClass = isPlaceholderImage ? 'object-contain p-8' : 'object-cover';
+
+  // --- COMPONENTE DE CATEGORÍAS INTERACTIVAS ---
+  const InteractiveVideoCategories = () => {
+    const [hoveredCategory, setHoveredCategory] = useState(null);
+    const videoRefs = useState({})[0];
+
+    // Configuración de categorías
+    const categories = [
+      {
+        id: 'bolsas',
+        title: 'Bolsas de Mano',
+        video: '/categories/bolsas.webm',
+        description: 'Elegancia y funcionalidad en cada diseño',
+        searchKeyword: 'bolsa'
+      },
+      {
+        id: 'mochilas', 
+        title: 'Mochilas',
+        video: '/categories/mochilas.webm',
+        description: 'Estilo urbano para tu día a día',
+        searchKeyword: 'mochila'
+      },
+      {
+        id: 'carteras',
+        title: 'Carteras de Fiesta',
+        video: '/categories/carteras.webm', 
+        description: 'Sofisticación para ocasiones especiales',
+        searchKeyword: 'cartera'
+      }
+    ];
+
+    // Manejadores de eventos para videos
+    const handleMouseEnter = async (categoryId) => {
+      setHoveredCategory(categoryId);
+      const video = videoRefs[categoryId];
+      if (video) {
+        try {
+          video.currentTime = 0;
+          await video.play();
+        } catch (error) {
+          console.log('Error al reproducir video:', error);
+        }
+      }
+    };
+
+    const handleMouseLeave = (categoryId) => {
+      setHoveredCategory(null);
+      const video = videoRefs[categoryId];
+      if (video) {
+        video.pause();
+        video.currentTime = 0;
+      }
+    };
+
+    // Manejador para navegación a productos con búsqueda
+    const handleCategoryClick = (searchKeyword) => {
+      console.log(`LOG: [VideoCategories] Navegando a productos con búsqueda: ${searchKeyword}`);
+      navigate(`/products?search=${encodeURIComponent(searchKeyword)}`);
+    };
+
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 text-center">
+        <Slide direction="down" triggerOnce>
+          <h2 className="text-3xl font-bold text-primary mb-4">Nuestras Categorías</h2>
+          <p className="text-gray-600 mb-12 max-w-2xl mx-auto">
+            Descubre nuestra colección cuidadosamente curada para cada momento de tu vida
+          </p>
+        </Slide>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+          {categories.map((category, index) => {
+            const isHovered = hoveredCategory === category.id;
+            const isOtherHovered = hoveredCategory && hoveredCategory !== category.id;
+
+            return (
+              <div
+                key={category.id}
+                className={`
+                  group relative overflow-hidden rounded-2xl shadow-xl cursor-pointer
+                  transition-all duration-700 ease-out transform-gpu
+                  ${isHovered 
+                    ? 'scale-110 z-20 shadow-2xl' 
+                    : isOtherHovered 
+                      ? 'scale-95 opacity-75' 
+                      : 'scale-100 hover:scale-105'
+                  }
+                `}
+                onMouseEnter={() => handleMouseEnter(category.id)}
+                onMouseLeave={() => handleMouseLeave(category.id)}
+                onClick={() => handleCategoryClick(category.searchKeyword)}
+                style={{
+                  transitionDelay: isHovered ? '0ms' : `${index * 100}ms`
+                }}
+              >
+                {/* Video Background */}
+                <div className="relative w-full aspect-[4/3] overflow-hidden">
+                  <video
+                    ref={(el) => (videoRefs[category.id] = el)}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                  >
+                    <source src={category.video} type="video/webm" />
+                    Tu navegador no soporta videos HTML5.
+                  </video>
+
+                  {/* Overlay con gradiente */}
+                  <div className={`
+                    absolute inset-0 transition-all duration-700
+                    ${isHovered 
+                      ? 'bg-gradient-to-t from-black/60 via-black/20 to-transparent' 
+                      : 'bg-gradient-to-t from-black/70 via-black/30 to-black/10'
+                    }
+                  `}></div>
+
+                  {/* Contenido superpuesto */}
+                  <div className="absolute inset-0 flex flex-col justify-end p-6 text-white">
+                    <div className={`
+                      transform transition-all duration-500
+                      ${isHovered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-90'}
+                    `}>
+                      <h3 className={`
+                        font-bold text-white mb-2 transition-all duration-300
+                        ${isHovered ? 'text-2xl' : 'text-xl'}
+                      `}>
+                        {category.title}
+                      </h3>
+                      
+                      <p className={`
+                        text-gray-200 text-sm leading-relaxed transition-all duration-500
+                        ${isHovered ? 'opacity-100 transform translate-y-0' : 'opacity-0 transform translate-y-4'}
+                      `}>
+                        {category.description}
+                      </p>
+                    </div>
+
+                    {/* Indicador de reproducción */}
+                    {isHovered && (
+                      <div className="absolute top-4 right-4 animate-pulse">
+                        <div className="bg-white/20 backdrop-blur-sm rounded-full p-2">
+                          <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z"/>
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Borde brillante en hover */}
+                  <div className={`
+                    absolute inset-0 rounded-2xl transition-all duration-300 pointer-events-none
+                    ${isHovered 
+                      ? 'ring-4 ring-primary/50 ring-offset-2 ring-offset-white' 
+                      : ''
+                    }
+                  `}></div>
+                </div>
+
+                {/* Efecto de resplandor en hover */}
+                {isHovered && (
+                  <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 to-red-500/20 rounded-3xl blur-xl opacity-75 animate-pulse -z-10"></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Indicaciones sutiles para el usuario */}
+        <div className="mt-8 text-center">
+          <p className="text-sm text-gray-500 italic">
+            ✨ Pasa el mouse para ver el video • 🖱️ Haz click para explorar productos
+          </p>
+        </div>
+      </div>
+    );
+  };
 
   // --- RENDERIZADO ---
   return (

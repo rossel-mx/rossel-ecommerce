@@ -1,9 +1,10 @@
 /**
- * @file Products.jsx - Versión Moderna 2025
- * @description Página de productos completamente renovada con diseño moderno,
- * animaciones fluidas, micro-interacciones y elementos visuales avanzados.
+ * @file Products.jsx
+ * @description Página principal que muestra la colección de productos.
+ * ACTUALIZADO: Ahora incluye búsqueda automática desde parámetros de URL
  */
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../services/supabaseClient";
 import ProductDetailModal from "../components/ProductDetailModal";
 import ProductCard from "../components/ProductCard";
@@ -61,7 +62,7 @@ const FilterChip = ({ active, children, onClick, icon: Icon }) => (
 );
 
 const Products = () => {
-  // Estados base
+  // --- ESTADOS ---
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -71,41 +72,63 @@ const Products = () => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   
   // Estados modernos adicionales
-  const [viewMode, setViewMode] = useState("grid"); // grid | list
+  const [viewMode, setViewMode] = useState("grid");
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [priceRange, setPriceRange] = useState("all");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
+  // --- URL PARAMS PARA BÚSQUEDA AUTOMÁTICA ---
+  const [searchParams] = useSearchParams();
+
+  // --- LÓGICA DE DATOS ---
   useEffect(() => {
     const fetchProducts = async () => {
       setLoading(true);
-      console.log("LOG: [Products] Iniciando carga de productos...");
+      console.log("LOG: [Products] Iniciando carga de la lista pública de productos...");
       try {
-        const { data, error: fetchError } = await supabase.rpc('get_public_product_list');
+        const { data, error: fetchError } = await supabase.rpc('get_all_products_for_listing');
         if (fetchError) throw fetchError;
         setProducts(data || []);
-        console.log("LOG: [Products] Productos cargados:", data);
+        console.log("LOG: [Products] Lista de productos públicos cargada:", data);
       } catch (err) {
         setError(err.message || "Error al cargar productos.");
-        console.error("ERROR: [Products]", err);
+        console.error("ERROR: [Products] Error al cargar la lista:", err);
       } finally {
         setLoading(false);
       }
     };
+    
     fetchProducts();
   }, []);
 
+  // --- APLICAR BÚSQUEDA AUTOMÁTICA DESDE URL ---
+  useEffect(() => {
+    const urlSearch = searchParams.get('search');
+    console.log(`LOG: [Products] Verificando parámetro de búsqueda desde URL:`, urlSearch);
+    console.log(`LOG: [Products] Estado actual de searchTerm antes:`, searchTerm);
+    
+    if (urlSearch && urlSearch !== searchTerm) {
+      console.log(`LOG: [Products] Aplicando búsqueda automática: "${urlSearch}"`);
+      setSearchTerm(urlSearch);
+      console.log(`LOG: [Products] setSearchTerm ejecutado con: "${urlSearch}"`);
+    }
+  }, [searchParams, searchTerm]);
+
   // Lógica de filtrado y ordenamiento mejorada
   const filteredAndSortedProducts = useMemo(() => {
+    console.log("LOG: [Products] Recalculando la lista de productos a mostrar...");
+    console.log("LOG: [Products] searchTerm actual en filtrado:", searchTerm);
     let processedProducts = [...products];
 
     // Filtro por búsqueda
     if (searchTerm.trim() !== "") {
+      console.log("LOG: [Products] Aplicando filtro de búsqueda:", searchTerm);
       processedProducts = processedProducts.filter(p => 
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.description?.toLowerCase().includes(searchTerm.toLowerCase())
       );
+      console.log("LOG: [Products] Productos después del filtro:", processedProducts.length);
     }
 
     // Filtro por categoría (si tienes categorías)
@@ -143,6 +166,7 @@ const Products = () => {
         break;
     }
     
+    console.log("LOG: [Products] Lista final filtrada y ordenada para mostrar:", processedProducts);
     return processedProducts;
   }, [products, searchTerm, sortBy, selectedCategory, priceRange]);
 
@@ -157,7 +181,7 @@ const Products = () => {
     setSelectedProduct(null);
   };
 
-  const categories = ["all", "camisetas", "pantalones", "accesorios"]; // Ajusta según tus categorías
+  const categories = ["all", "camisetas", "pantalones", "accesorios"];
   const priceRanges = [
     { value: "all", label: "Todos los precios" },
     { value: "0-500", label: "$0 - $500" },
@@ -238,14 +262,20 @@ const Products = () => {
                     type="search"
                     placeholder="Buscar productos, marcas, categorías..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      console.log("LOG: [Products] Usuario escribiendo en búsqueda:", e.target.value);
+                      setSearchTerm(e.target.value);
+                    }}
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => setIsSearchFocused(false)}
                     className="w-full pl-12 pr-4 py-4 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all duration-300 text-lg placeholder-gray-400"
                   />
                   {searchTerm && (
                     <button
-                      onClick={() => setSearchTerm("")}
+                      onClick={() => {
+                        console.log("LOG: [Products] Limpiando búsqueda");
+                        setSearchTerm("");
+                      }}
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                     >
                       ×
@@ -466,8 +496,6 @@ const Products = () => {
           onClose={handleCloseModal}
         />
       )}
-
-
     </>
   );
 };

@@ -12,6 +12,7 @@
  * - ✅ Botones con estados hover más atractivos
  * - ✅ Efectos de backdrop blur y sombras sofisticadas
  * - ✅ Layout mejorado con mejor espaciado y tipografía
+ * - ✅ IMÁGENES CORREGIDAS: object-contain para mostrar productos completos
  *
  * @props {object} product - El objeto del producto base a cargar (contiene id, name, description).
  * @props {function} onClose - Función callback para cerrar el modal.
@@ -145,11 +146,11 @@ const ProductDetailModal = ({ product, onClose }) => {
   // --- RENDERIZADO DEL MODAL ---
   return (
     <div 
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-in fade-in duration-300" 
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fade-in" 
       onClick={onClose}
     >
       <div 
-        className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl w-full md:w-4/5 max-w-6xl max-h-[90vh] overflow-hidden relative animate-in zoom-in-95 slide-in-from-bottom-10 duration-500" 
+        className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl w-full md:w-4/5 max-w-6xl max-h-[90vh] overflow-hidden relative animate-slide-down" 
         onClick={(e) => e.stopPropagation()}
       >
         
@@ -196,7 +197,7 @@ const ProductDetailModal = ({ product, onClose }) => {
                     key={mainImage} 
                     src={mainImage} 
                     alt={product.name} 
-                    className="w-full h-full object-cover transition-all duration-500 group-hover:scale-105"
+                    className="max-w-full max-h-full object-contain transition-all duration-500 group-hover:scale-105"
                     onLoad={() => setImageLoading(false)}
                     onError={() => setImageLoading(false)}
                   />
@@ -211,13 +212,13 @@ const ProductDetailModal = ({ product, onClose }) => {
                       <button 
                         key={index} 
                         onClick={() => handleSelectImage(url)} 
-                        className={`aspect-square border-3 rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg ${
+                        className={`aspect-square border-3 rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg bg-gray-50 flex items-center justify-center ${
                           mainImage === url 
                             ? 'border-primary ring-4 ring-primary/30 shadow-lg' 
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
-                        <img src={url} alt={`Vista ${index + 1}`} className="w-full h-full object-cover"/>
+                        <img src={url} alt={`Vista ${index + 1}`} className="max-w-full max-h-full object-contain"/>
                       </button>
                     ))}
                   </div>

@@ -359,3 +359,25 @@ entrypoint = "./functions/delete-cloudinary-images/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/delete-cloudinary-images/*.html" ]
+
+[functions.nombre-de-tu-funcion]
+enabled = true
+verify_jwt = true
+import_map = "./functions/nombre-de-tu-funcion/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/nombre-de-tu-funcion/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/nombre-de-tu-funcion/*.html" ]
+
+[functions.generate-cloudinary-signature-bulk]
+enabled = true
+verify_jwt = true
+import_map = "./functions/generate-cloudinary-signature-bulk/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/generate-cloudinary-signature-bulk/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/generate-cloudinary-signature-bulk/*.html" ]

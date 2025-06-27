@@ -1,36 +1,28 @@
 /**
- * @file ProductsTab.jsx
- * @description Pestaña de gestión de productos para el panel de administración.
- * Esta es la versión final y reestructurada que maneja la nueva arquitectura
- * de productos y variantes. Sus responsabilidades son:
- * - Cargar la lista jerárquica de productos y sus variantes anidadas.
- * - Mantener la lista actualizada en tiempo real mediante suscripciones a las tablas 'products' y 'product_variants'.
- * - Centralizar la lógica de eliminación segura, que borra un producto padre y todas sus variantes y imágenes asociadas.
- * - Orquestar los componentes hijos ProductForm y ProductList.
- * - Manejar correctamente el flujo de edición CRUD.
+ * @file ProductsTab.jsx  
+ * @description Pestaña principal de gestión de productos con dos modos:
+ * 1. Carga Individual - Para productos ocasionales (con transformaciones Cloudinary)
+ * 2. Carga Masiva - Para setup inicial (sin transformaciones, 0 tokens)
  */
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../services/supabaseClient";
 import toast, { Toaster } from "react-hot-toast";
+import { FiUser, FiPackage } from 'react-icons/fi';
 import ProductList from "./ProductList";
 import ProductForm from "./ProductForm";
+import MassiveUpload from "./MassiveUpload";
 
 const ProductsTab = () => {
   // --- ESTADOS ---
-  const [products, setProducts] = useState([]); // Almacenará productos con sus variantes anidadas
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editingProduct, setEditingProduct] = useState(null); // Producto a editar
-  const [isActionLoading, setIsActionLoading] = useState(false); // Para deshabilitar botones durante una acción
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('individual'); // 'individual' | 'massive'
 
   // --- LÓGICA DE DATOS ---
   
-  /**
-   * Carga la lista de productos y sus variantes anidadas desde la base de datos
-   * llamando a nuestra nueva función RPC 'get_products_with_variants'.
-   */
   const fetchProductsWithVariants = useCallback(async () => {
-    // No activamos el 'loading' principal en las recargas para una UX más fluida,
-    // solo en la carga inicial.
     console.log("LOG: [ProductsTab] Iniciando carga/recarga de productos con variantes...");
     try {
       const { data, error } = await supabase.rpc('get_products_with_variants');
@@ -43,23 +35,19 @@ const ProductsTab = () => {
       toast.error(error.message || "Error al cargar el inventario.");
       console.error("ERROR: [ProductsTab] Error al cargar productos:", error);
     } finally {
-      // Nos aseguramos de quitar el estado de carga solo si estaba activo.
       if (loading) setLoading(false);
     }
-  }, [loading]); // Depende de 'loading' para poder gestionarlo en el 'finally'
+  }, [loading]);
 
   // --- EFECTOS ---
 
-  // 1. Efecto para la carga inicial de datos.
   useEffect(() => {
     fetchProductsWithVariants();
-    // Deshabilitamos la regla de ESLint porque queremos que este efecto se ejecute solo al montar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // El array vacío asegura que se ejecute solo una vez.
+  }, []);
 
-  // 2. Efecto para la suscripción a cambios en tiempo real en AMBAS tablas.
   useEffect(() => {
-    console.log("LOG: [ProductsTab] Configurando suscripciones en tiempo real a 'products' y 'product_variants'.");
+    console.log("LOG: [ProductsTab] Configurando suscripciones en tiempo real...");
     
     const handleDbChange = (payload) => {
       console.log('LOG: [ProductsTab] ¡Cambio en tiempo real detectado!', payload);
@@ -68,9 +56,7 @@ const ProductsTab = () => {
     };
 
     const channel = supabase.channel('products-variants-realtime')
-      // Escuchamos cambios en la tabla de productos padre
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, handleDbChange)
-      // Y también escuchamos cambios en la tabla de variantes
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_variants' }, handleDbChange)
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
@@ -78,7 +64,6 @@ const ProductsTab = () => {
         }
       });
       
-    // Función de limpieza para desuscribirse cuando el componente se desmonta.
     return () => {
       console.log("LOG: [ProductsTab] Desmontando. Limpiando suscripción en tiempo real.");
       supabase.removeChannel(channel);
@@ -87,35 +72,29 @@ const ProductsTab = () => {
 
   // --- MANEJADORES DE EVENTOS ---
 
-  /**
-   * Se ejecuta cuando el ProductForm completa una operación de creación/edición.
-   * También se usa para cancelar la edición.
-   */
   const handleFormSuccess = () => {
     console.log("LOG: [ProductsTab] El formulario reportó éxito o se canceló la edición.");
-    
-    // Limpiar el estado de edición
     setEditingProduct(null);
-    
-    // Forzar recarga para ver los cambios al instante
     fetchProductsWithVariants();
   };
 
-  /**
-   * Maneja el inicio de la edición de un producto.
-   * @param {Object} product - El producto completo con sus variantes a editar.
-   */
+  const handleMassiveUploadSuccess = () => {
+    console.log("LOG: [ProductsTab] Carga masiva completada exitosamente.");
+    fetchProductsWithVariants();
+    toast.success("¡Carga masiva completada! Cambiando a vista de lista...");
+    // Cambiar a pestaña individual para ver los productos cargados
+    setTimeout(() => setActiveTab('individual'), 2000);
+  };
+
   const handleEdit = (product) => {
     console.log("LOG: [ProductsTab] Iniciando edición de producto:", product);
     
-    // Verificar que el producto tiene la estructura correcta
     if (!product || !product.id) {
       console.error("ERROR: [ProductsTab] Producto inválido para edición:", product);
       toast.error("Error: Producto inválido para edición");
       return;
     }
 
-    // Formatear el producto para que sea compatible con el formulario
     const formattedProduct = {
       id: product.id,
       sku: product.sku || '',
@@ -123,42 +102,32 @@ const ProductsTab = () => {
       description: product.description || '',
       category: product.category || '',
       variants: product.variants?.map(variant => ({
-        variant_id: variant.id || variant.variant_id, // Asegurarse de que tenemos el ID
+        variant_id: variant.id || variant.variant_id,
         color: variant.color || '',
         stock: variant.stock || 0,
         price: variant.price || '',
         price_menudeo: variant.price_menudeo || '',
         price_mayoreo: variant.price_mayoreo || '',
         image_urls: variant.image_urls || [],
-        newImageFiles: [] // Inicializar array para nuevas imágenes
+        newImageFiles: []
       })) || []
     };
 
     console.log("LOG: [ProductsTab] Producto formateado para edición:", formattedProduct);
     
-    // Establecer el producto en modo de edición
     setEditingProduct(formattedProduct);
+    setActiveTab('individual'); // Cambiar a pestaña individual para editar
     
-    // Hacer scroll hacia arriba para que el admin vea el formulario
+    // Scroll hacia arriba
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    // ❌ LÍNEA ELIMINADA: No más toast duplicado aquí
-    // toast.success(`Modo edición activado para: ${product.name}`);
   };
 
-  /**
-   * Maneja la cancelación de la edición.
-   */
   const handleCancelEdit = () => {
     console.log("LOG: [ProductsTab] Cancelando edición...");
     setEditingProduct(null);
     toast.success("Edición cancelada");
   };
   
-  /**
-   * Maneja la eliminación de un producto padre y todas sus variantes y imágenes asociadas.
-   * @param {number} productId - El ID del producto padre a eliminar.
-   */
   const handleDelete = async (productId) => {
     const productToDelete = products.find(p => p.id === productId);
     if (!productToDelete || !window.confirm(`¿Estás seguro de eliminar "${productToDelete.name}" y TODAS sus variantes de color?\nEsta acción es irreversible.`)) return;
@@ -167,10 +136,8 @@ const ProductsTab = () => {
     toast.loading('Eliminando producto...');
     
     try {
-      // 1. Recolectar TODAS las URLs de imágenes de TODAS las variantes.
       const allImageUrls = (productToDelete.variants || []).flatMap(variant => variant.image_urls || []);
 
-      // 2. Si hay imágenes, llamar a la Edge Function para borrarlas de Cloudinary.
       if (allImageUrls.length > 0) {
         console.log("LOG: [ProductsTab] Invocando 'delete-cloudinary-images' para:", allImageUrls);
         const { error: functionError } = await supabase.functions.invoke('delete-cloudinary-images', { body: { imageUrls: allImageUrls } });
@@ -180,20 +147,16 @@ const ProductsTab = () => {
         }
       }
 
-      // 3. Gracias a "ON DELETE CASCADE" en la base de datos, solo necesitamos borrar el producto padre.
-      // La base de datos se encargará de borrar todas sus variantes asociadas automáticamente.
       console.log(`LOG: [ProductsTab] Eliminando producto padre ID: ${productId} de la base de datos...`);
       const { error: deleteError } = await supabase.from('products').delete().eq('id', productId);
       if (deleteError) throw deleteError;
 
-      // Si estábamos editando este producto, cancelar la edición
       if (editingProduct && editingProduct.id === productId) {
         setEditingProduct(null);
       }
 
       toast.dismiss();
       toast.success("Producto y todas sus variantes eliminados.");
-      // No necesitamos llamar a fetchProducts() aquí, el listener de Realtime se encargará de actualizar la UI.
 
     } catch (error) {
       toast.dismiss();
@@ -208,43 +171,95 @@ const ProductsTab = () => {
   return (
     <div className="p-4">
       <Toaster position="top-right" />
-      <h3 className="text-2xl font-bold mb-4">Gestión de Inventario</h3>
       
-      {/* Botón para crear nuevo producto (solo se muestra si no estamos editando) */}
-      {editingProduct && (
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <div className="flex justify-between items-center">
-            <p className="text-blue-800 font-medium">
-              📝 Editando: <strong>{editingProduct.name}</strong>
-            </p>
-            <button 
-              onClick={handleCancelEdit}
-              className="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition"
+      {/* Header */}
+      <div className="mb-6">
+        <h3 className="text-2xl font-bold mb-2">Gestión de Inventario</h3>
+        <p className="text-gray-600">
+          Gestiona tu inventario de forma individual o mediante carga masiva
+        </p>
+      </div>
+      
+      {/* Tabs */}
+      <div className="mb-6">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('individual')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'individual'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             >
-              ✕ Cancelar
+              <div className="flex items-center gap-2">
+                <FiUser className="w-4 h-4" />
+                Carga Individual
+              </div>
             </button>
-          </div>
+            <button
+              onClick={() => setActiveTab('massive')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'massive'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <FiPackage className="w-4 h-4" />
+                Carga Masiva
+              </div>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'individual' && (
+        <div>
+          {/* Indicador de edición */}
+          {editingProduct && (
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex justify-between items-center">
+                <p className="text-blue-800 font-medium">
+                  📝 Editando: <strong>{editingProduct.name}</strong>
+                </p>
+                <button 
+                  onClick={handleCancelEdit}
+                  className="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition"
+                >
+                  ✕ Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {/* Formulario individual */}
+          <ProductForm 
+            onFormSubmit={handleFormSuccess} 
+            editingProduct={editingProduct}
+            key={editingProduct ? `edit-${editingProduct.id}` : 'create'}
+          />
+          
+          {/* Lista de productos */}
+          {loading ? (
+            <p className="text-center py-10">Cargando inventario...</p>
+          ) : (
+            <ProductList 
+              products={products}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              isActionLoading={isActionLoading}
+              editingProductId={editingProduct?.id}
+            />
+          )}
         </div>
       )}
-      
-      {/* El formulario para crear/editar productos y sus variantes */}
-      <ProductForm 
-        onFormSubmit={handleFormSuccess} 
-        editingProduct={editingProduct}
-        key={editingProduct ? `edit-${editingProduct.id}` : 'create'} // Key para forzar re-render
-      />
-      
-      {/* La liista jerárquica de productos y variantes */}
-      {loading ? (
-        <p className="text-center py-10">Cargando inventario...</p>
-      ) : (
-        <ProductList 
-          products={products}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          isActionLoading={isActionLoading}
-          editingProductId={editingProduct?.id} // Para resaltar el producto en edición
-        />
+
+      {activeTab === 'massive' && (
+        <div>
+          <MassiveUpload onUploadSuccess={handleMassiveUploadSuccess} />
+        </div>
       )}
     </div>
   );

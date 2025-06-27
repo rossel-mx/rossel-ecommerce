@@ -4,7 +4,7 @@
  * ACTUALIZADO: Ahora incluye búsqueda automática desde parámetros de URL
  */
 import { useEffect, useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabaseClient";
 import ProductDetailModal from "../components/ProductDetailModal";
 import ProductCard from "../components/ProductCard";
@@ -79,7 +79,8 @@ const Products = () => {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   // --- URL PARAMS PARA BÚSQUEDA AUTOMÁTICA ---
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // --- LÓGICA DE DATOS ---
   useEffect(() => {
@@ -442,20 +443,21 @@ const Products = () => {
               <p className="text-gray-600 mb-8 max-w-md mx-auto">
                 Intenta ajustar tus filtros o realiza una búsqueda diferente para encontrar lo que buscas.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <div className="flex justify-center">
                 <button
                   onClick={() => {
-                    setSearchTerm("");
-                    setSelectedCategory("all");
-                    setPriceRange("all");
+                    console.log("LOG: [Products] Limpiando todo y navegando");
+                    // Primero navegar para limpiar URL
+                    navigate("/products", { replace: true });
+                    // Luego limpiar estados (con un pequeño delay para asegurar que se procese)
+                    setTimeout(() => {
+                      setSearchTerm("");
+                      setSelectedCategory("all");
+                      setPriceRange("all");
+                      setSortBy("newest");
+                    }, 10);
                   }}
-                  className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors"
-                >
-                  Limpiar filtros
-                </button>
-                <button
-                  onClick={() => setSortBy("newest")}
-                  className="px-6 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition-colors"
+                  className="px-8 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium"
                 >
                   Ver todos los productos
                 </button>

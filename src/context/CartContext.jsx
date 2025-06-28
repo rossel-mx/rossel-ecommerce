@@ -7,6 +7,7 @@
  * 3. Se limpia automáticamente y de forma proactiva cuando un usuario cierra sesión.
  * 4. 📊 NUEVO: Integración completa con Google Analytics 4 y Enhanced Ecommerce.
  * 5. 📊 NUEVO: Tracking automático de todas las acciones del carrito.
+ * 6. ✅ ACTUALIZADO: addToCart ahora acepta cantidad inicial personalizada.
  *
  * @requires react
  * @requires ./UserContext
@@ -221,35 +222,43 @@ export const CartProvider = ({ children }) => {
    * Añade una variante de producto al carrito.
    * Si la variante ya existe, incrementa su cantidad.
    * 📊 Incluye tracking automático de Analytics.
+   * ✅ ACTUALIZADO: Ahora acepta cantidad inicial personalizada.
    * @param {object} variantToAdd - El objeto de la variante a añadir. Debe tener un 'id' único.
+   * @param {number} initialQuantity - Cantidad inicial a agregar (por defecto 1).
    */
-  const addToCart = (variantToAdd) => {
-    console.log("LOG: [CartProvider] Añadiendo al carrito la variante:", variantToAdd);
+  const addToCart = (variantToAdd, initialQuantity = 1) => {
+    console.log("LOG: [CartProvider] Añadiendo al carrito la variante:", variantToAdd, "Cantidad inicial:", initialQuantity);
+    
+    // Validar cantidad
+    const quantityToAdd = Math.max(1, parseInt(initialQuantity) || 1);
     
     // Encontrar si el item ya existe para determinar la cantidad anterior
     const existingItem = cart.find((item) => item.id === variantToAdd.id);
     const oldQuantity = existingItem ? existingItem.quantity : 0;
-    const newQuantity = oldQuantity + 1;
+    const newQuantity = oldQuantity + quantityToAdd;
     
     setCart(prevCart => {
       if (existingItem) {
+        // Si ya existe, incrementar la cantidad
         return prevCart.map((item) =>
           item.id === variantToAdd.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + quantityToAdd }
             : item
         );
       } else {
-        return [...prevCart, { ...variantToAdd, quantity: 1 }];
+        // Si no existe, agregarlo con la cantidad inicial
+        return [...prevCart, { ...variantToAdd, quantity: quantityToAdd }];
       }
     });
 
     // 📊 TRACKING DE ANALYTICS
     if (analytics) {
-      analytics.trackAddToCart(variantToAdd, 1);
+      analytics.trackAddToCart(variantToAdd, quantityToAdd);
       analytics.trackCartUpdate('add', variantToAdd, newQuantity, oldQuantity);
     }
 
-    toast.success(`${variantToAdd.name} (${variantToAdd.color}) agregado al carrito.`);
+    // Toast removido - se maneja desde el componente que llama addToCart
+    console.log(`LOG: [CartProvider] ${quantityToAdd} × ${variantToAdd.name} (${variantToAdd.color}) agregado exitosamente al carrito.`);
   };
 
   /**

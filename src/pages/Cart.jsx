@@ -4,6 +4,9 @@
  * Esta versión está completamente reconstruida para funcionar con la nueva arquitectura
  * de productos y variantes. Muestra cada variante (ej. mismo producto, diferente color)
  * como un artículo separado y utiliza la lógica actualizada del CartContext.
+ * 
+ * ✅ ACTUALIZADO: Ahora incluye validación de stock para evitar que se agreguen
+ * más unidades de las disponibles desde el carrito.
  *
  * @requires react
  * @requires react-router-dom
@@ -34,6 +37,29 @@ const Cart = () => {
     } else {
       console.log("LOG: [Cart] El usuario canceló la operación de vaciar el carrito.");
     }
+  };
+
+  /**
+   * ✅ NUEVO: Maneja el incremento de cantidad con validación de stock
+   */
+  const handleIncreaseQuantity = (item) => {
+    const newQuantity = item.quantity + 1;
+    
+    // Validar stock disponible
+    if (item.stock !== undefined && newQuantity > item.stock) {
+      toast.error(`Solo hay ${item.stock} unidades disponibles de ${item.name} (${item.color})`);
+      return;
+    }
+    
+    updateQuantity(item.id, newQuantity);
+  };
+
+  /**
+   * ✅ NUEVO: Maneja el decremento de cantidad
+   */
+  const handleDecreaseQuantity = (item) => {
+    const newQuantity = item.quantity - 1;
+    updateQuantity(item.id, newQuantity);
   };
   
   // 3. --- FUNCIONES AUXILIARES ---
@@ -68,6 +94,9 @@ const Cart = () => {
               const price = isMayoreo ? item.price_mayoreo : item.price_menudeo;
               const imageUrl = item.image_urls && item.image_urls.length > 0 ? item.image_urls[0] : '/rossel-placeholder.webp';
 
+              // ✅ NUEVO: Calcular si el botón + debe estar deshabilitado
+              const isAtMaxStock = item.stock !== undefined && item.quantity >= item.stock;
+
               return (
                 // --- Tarjeta para cada artículo del carrito ---
                 <div key={item.id} className="bg-white rounded-lg shadow p-4 flex flex-col sm:flex-row items-center gap-4 animate-fade-in">
@@ -77,17 +106,38 @@ const Cart = () => {
                     {/* ¡AQUÍ ESTÁ LA MEJORA! Mostramos el nombre del producto y el color de la variante */}
                     <h2 className="font-bold text-lg text-primary">{item.name}</h2>
                     <p className="text-sm text-gray-500 font-semibold">{item.color}</p>
+                    
+                    {/* ✅ NUEVO: Mostrar stock disponible si está definido */}
+                    {item.stock !== undefined && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        {item.stock} disponibles
+                      </p>
+                    )}
+                    
                     <button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 text-sm font-semibold mt-1">
                       Eliminar
                     </button>
                   </div>
                   
                   <div className="flex items-center gap-4">
-                    {/* Stepper de Cantidad */}
+                    {/* ✅ MEJORADO: Stepper de Cantidad con Validación de Stock */}
                     <div className="flex items-center border rounded-md">
-                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="px-3 py-1 text-lg font-bold hover:bg-gray-100 rounded-l-md">-</button>
-                      <span className="px-4 py-1 font-semibold">{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-3 py-1 text-lg font-bold hover:bg-gray-100 rounded-r-md">+</button>
+                      <button 
+                        onClick={() => handleDecreaseQuantity(item)} 
+                        disabled={item.quantity <= 1}
+                        className="px-3 py-1 text-lg font-bold hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-l-md transition-colors"
+                      >
+                        -
+                      </button>
+                      <span className="px-4 py-1 font-semibold min-w-[3ch] text-center">{item.quantity}</span>
+                      <button 
+                        onClick={() => handleIncreaseQuantity(item)} 
+                        disabled={isAtMaxStock}
+                        className="px-3 py-1 text-lg font-bold hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-r-md transition-colors"
+                        title={isAtMaxStock ? `Máximo ${item.stock} unidades` : 'Agregar una unidad más'}
+                      >
+                        +
+                      </button>
                     </div>
 
                     {/* Precio y etiqueta de mayoreo/menudeo */}
@@ -98,6 +148,13 @@ const Cart = () => {
                       }`}>
                         {isMayoreo ? 'Precio Mayoreo' : 'Precio Menudeo'}
                       </span>
+                      
+                      {/* ✅ NUEVO: Indicador visual si está en el límite de stock */}
+                      {isAtMaxStock && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-800 mt-1">
+                          Máximo stock
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

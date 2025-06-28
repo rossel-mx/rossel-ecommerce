@@ -13,6 +13,7 @@
  * - ✅ Efectos de backdrop blur y sombras sofisticadas
  * - ✅ Layout mejorado con mejor espaciado y tipografía
  * - ✅ IMÁGENES CORREGIDAS: object-contain para mostrar productos completos
+ * - 🆕 SELECTOR DE CANTIDAD: Input manual + botones +/- con precios dinámicos
  *
  * @props {object} product - El objeto del producto base a cargar (contiene id, name, description).
  * @props {function} onClose - Función callback para cerrar el modal.
@@ -23,6 +24,7 @@ import { supabase } from "../services/supabaseClient";
 import { useCart } from "../context/CartContext";
 import { useUser } from "../context/UserContext";
 import toast from "react-hot-toast";
+import { FiMinus, FiPlus, FiShoppingCart, FiUser, FiX } from "react-icons/fi";
 
 // Mapa de colores para los selectores visuales.
 const colorMap = {
@@ -33,6 +35,40 @@ const colorMap = {
   'celeste': '#38BDF8', 'marino': '#000080',
 };
 
+// Componente Selector de Cantidad
+const QuantitySelector = ({ value, onChange, max = 99, min = 1, disabled = false }) => (
+  <div className="flex items-center bg-gray-50 rounded-xl p-2 gap-3">
+    <button 
+      onClick={() => onChange(Math.max(min, value - 1))}
+      disabled={disabled || value <= min}
+      className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm border border-gray-200 hover:border-gray-300 transition-all duration-200 hover:scale-105 active:scale-95"
+    >
+      <FiMinus className="w-4 h-4 text-gray-600" />
+    </button>
+    
+    <input
+      type="number"
+      value={value}
+      onChange={(e) => {
+        const newValue = parseInt(e.target.value) || min;
+        onChange(Math.max(min, Math.min(max, newValue)));
+      }}
+      disabled={disabled}
+      className="w-16 text-center text-lg font-bold bg-transparent border-none outline-none disabled:opacity-50"
+      min={min}
+      max={max}
+    />
+    
+    <button 
+      onClick={() => onChange(Math.min(max, value + 1))}
+      disabled={disabled || value >= max}
+      className="w-10 h-10 rounded-lg bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm border border-gray-200 hover:border-gray-300 transition-all duration-200 hover:scale-105 active:scale-95"
+    >
+      <FiPlus className="w-4 h-4 text-gray-600" />
+    </button>
+  </div>
+);
+
 const ProductDetailModal = ({ product, onClose }) => {
   // --- ESTADOS ---
   const [variants, setVariants] = useState([]);
@@ -40,6 +76,9 @@ const ProductDetailModal = ({ product, onClose }) => {
   const [mainImage, setMainImage] = useState('');
   const [loading, setLoading] = useState(true);
   const [imageLoading, setImageLoading] = useState(false);
+  
+  // 🆕 NUEVO: Estado para cantidad
+  const [quantity, setQuantity] = useState(1);
   
   const { addToCart } = useCart();
   const { user } = useUser();
@@ -93,11 +132,57 @@ const ProductDetailModal = ({ product, onClose }) => {
     fetchVariants();
   }, [product]);
 
+  // 🆕 Resetear cantidad cuando cambia la variante
+  useEffect(() => {
+    if (selectedVariant) {
+      setQuantity(1);
+    }
+  }, [selectedVariant]);
+
+  // --- FUNCIONES DE CÁLCULO DE PRECIOS ---
+  const getUnitPrice = () => {
+    if (!selectedVariant) return 0;
+    return quantity >= 4 ? selectedVariant.price_mayoreo : selectedVariant.price_menudeo;
+  };
+
+  const getTotalPrice = () => {
+    return getUnitPrice() * quantity;
+  };
+
+  const getSavingsMessage = () => {
+    if (!selectedVariant) return null;
+    
+    if (quantity >= 4) {
+      const savings = (selectedVariant.price_menudeo - selectedVariant.price_mayoreo) * quantity;
+      return {
+        type: 'success',
+        message: `¡Ahorras ${formatCurrency(savings)} con precio mayoreo!`
+      };
+    }
+    
+    if (quantity >= 3) {
+      const needed = 4 - quantity;
+      const potentialSavings = (selectedVariant.price_menudeo - selectedVariant.price_mayoreo) * 4;
+      return {
+        type: 'info',
+        message: `Agrega ${needed} más para ahorrar ${formatCurrency(potentialSavings)} con precio mayoreo`
+      };
+    }
+    
+    return null;
+  };
+
+  const getMaxQuantity = () => {
+    if (!selectedVariant) return 99;
+    return selectedVariant.stock || 99;
+  };
+
   // --- MANEJADORES DE EVENTOS ---
 
   const handleSelectVariant = (variant) => {
     console.log("LOG: [Modal] El usuario seleccionó la variante de color:", variant);
     setSelectedVariant(variant);
+    setQuantity(1); // Reset cantidad al cambiar variante
     if (variant.image_urls && variant.image_urls.length > 0) {
       setImageLoading(true);
       setMainImage(variant.image_urls[0]);
@@ -109,6 +194,13 @@ const ProductDetailModal = ({ product, onClose }) => {
   const handleSelectImage = (imageUrl) => {
     setImageLoading(true);
     setMainImage(imageUrl);
+  };
+
+  const handleQuantityChange = (newQuantity) => {
+    const maxQty = getMaxQuantity();
+    const validQuantity = Math.max(1, Math.min(maxQty, newQuantity));
+    setQuantity(validQuantity);
+    console.log("LOG: [Modal] Cantidad actualizada a:", validQuantity);
   };
 
   const handleAddToCart = () => {
@@ -123,8 +215,16 @@ const ProductDetailModal = ({ product, onClose }) => {
       }, 1000);
       return;
     }
+
+    if (selectedVariant.stock !== undefined && quantity > selectedVariant.stock) {
+      toast.error(`Solo hay ${selectedVariant.stock} unidades disponibles`);
+      return;
+    }
     
-    console.log("LOG: [Modal] Usuario autenticado. Añadiendo al carrito la variante:", selectedVariant);
+    console.log("LOG: [Modal] Usuario autenticado. Añadiendo al carrito:", {
+      variant: selectedVariant,
+      quantity: quantity
+    });
     
     const itemToAdd = {
         id: selectedVariant.id,
@@ -133,11 +233,19 @@ const ProductDetailModal = ({ product, onClose }) => {
         color: selectedVariant.color,
         price_menudeo: selectedVariant.price_menudeo,
         price_mayoreo: selectedVariant.price_mayoreo,
-        image_urls: selectedVariant.image_urls
+        image_urls: selectedVariant.image_urls,
+        stock: selectedVariant.stock // ✅ NUEVO: Incluir stock para validación en Cart
     };
 
-    addToCart(itemToAdd);
-    toast.success(`${itemToAdd.name} (${itemToAdd.color}) agregado al carrito!`);
+    // 🆕 Pasar la cantidad seleccionada al contexto
+    addToCart(itemToAdd, quantity);
+    
+    // Toast personalizado según la cantidad
+    const message = quantity === 1 
+      ? `${itemToAdd.name} (${itemToAdd.color}) agregado al carrito!`
+      : `${quantity} × ${itemToAdd.name} (${itemToAdd.color}) agregado al carrito!`;
+    
+    toast.success(message);
     onClose();
   };
   
@@ -160,9 +268,7 @@ const ProductDetailModal = ({ product, onClose }) => {
           className="absolute top-6 right-6 z-20 bg-white/80 backdrop-blur-sm hover:bg-white/90 text-gray-600 hover:text-gray-800 rounded-full p-3 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-110 group"
           aria-label="Cerrar modal"
         >
-          <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <FiX className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
         </button>
 
         {loading ? (
@@ -175,19 +281,17 @@ const ProductDetailModal = ({ product, onClose }) => {
         ) : !selectedVariant ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <FiX className="w-8 h-8 text-gray-400" />
             </div>
             <p className="text-lg font-medium text-gray-600">Producto no encontrado o no disponible</p>
           </div>
         ) : (
           <div className="overflow-y-auto max-h-[90vh]">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 p-4 sm:p-6 lg:p-8">
               
               {/* Columna de Galería de Imágenes */}
-              <div className="space-y-6">
-                <div className="relative w-full aspect-square bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl flex items-center justify-center overflow-hidden shadow-inner group">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="relative w-full aspect-square bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl sm:rounded-2xl flex items-center justify-center overflow-hidden shadow-inner group">
                   {imageLoading && (
                     <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
                       <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -207,14 +311,14 @@ const ProductDetailModal = ({ product, onClose }) => {
                 </div>
                 
                 {selectedVariant.image_urls && selectedVariant.image_urls.length > 1 && (
-                  <div className="grid grid-cols-5 gap-3">
+                  <div className="grid grid-cols-5 gap-2 sm:gap-3">
                     {selectedVariant.image_urls.map((url, index) => (
                       <button 
                         key={index} 
                         onClick={() => handleSelectImage(url)} 
-                        className={`aspect-square border-3 rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg bg-gray-50 flex items-center justify-center ${
+                        className={`aspect-square border-2 sm:border-3 rounded-lg sm:rounded-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-lg bg-gray-50 flex items-center justify-center ${
                           mainImage === url 
-                            ? 'border-primary ring-4 ring-primary/30 shadow-lg' 
+                            ? 'border-primary ring-2 sm:ring-4 ring-primary/30 shadow-lg' 
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
@@ -226,20 +330,20 @@ const ProductDetailModal = ({ product, onClose }) => {
               </div>
               
               {/* Columna de Detalles y Acciones */}
-              <div className="flex flex-col space-y-6">
-                <div className="space-y-3">
-                  <h2 className="text-4xl font-bold bg-gradient-to-r from-primary to-red-700 bg-clip-text text-transparent leading-tight pr-12">
+              <div className="flex flex-col space-y-4 sm:space-y-6">
+                <div className="space-y-2 sm:space-y-3">
+                  <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-primary to-red-700 bg-clip-text text-transparent leading-tight pr-12">
                     {product.name}
                   </h2>
-                  <p className="text-gray-600 text-lg leading-relaxed">{product.description}</p>
+                  <p className="text-gray-600 text-base sm:text-lg leading-relaxed">{product.description}</p>
                 </div>
                 
                 {variants.length > 1 && (
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-800">
+                  <div className="space-y-3 sm:space-y-4">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-800">
                       Color: <span className="font-bold text-primary">{selectedVariant.color}</span>
                     </h3>
-                    <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap gap-2 sm:gap-3">
                       {variants.map(variant => {
                         const backgroundColor = colorMap[variant.color?.toLowerCase()] || '#cccccc';
                         const isSelected = selectedVariant.id === variant.id;
@@ -248,9 +352,9 @@ const ProductDetailModal = ({ product, onClose }) => {
                             key={variant.id} 
                             onClick={() => handleSelectVariant(variant)} 
                             title={variant.color} 
-                            className={`relative w-12 h-12 rounded-full border-3 transition-all duration-300 hover:scale-110 hover:shadow-lg ${
+                            className={`relative w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 sm:border-3 transition-all duration-300 hover:scale-110 hover:shadow-lg ${
                               isSelected 
-                                ? 'border-primary ring-4 ring-primary/30 shadow-lg' 
+                                ? 'border-primary ring-2 sm:ring-4 ring-primary/30 shadow-lg' 
                                 : 'border-gray-300 hover:border-gray-400'
                             }`} 
                             style={{ backgroundColor }}
@@ -268,30 +372,77 @@ const ProductDetailModal = ({ product, onClose }) => {
                   </div>
                 )}
 
-                <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 backdrop-blur-sm p-6 rounded-2xl border border-gray-200/50 space-y-3">
+                {/* 🆕 SELECTOR DE CANTIDAD */}
+                <div className="space-y-3 sm:space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600 font-medium">Precio Menudeo:</span>
-                    <span className="text-2xl font-bold text-gray-800">{formatCurrency(selectedVariant.price_menudeo)}</span>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-800">Cantidad</h3>
+                    {selectedVariant.stock !== undefined && (
+                      <span className="text-xs sm:text-sm text-gray-500">
+                        {selectedVariant.stock} disponibles
+                      </span>
+                    )}
                   </div>
+                  <QuantitySelector 
+                    value={quantity}
+                    onChange={handleQuantityChange}
+                    max={getMaxQuantity()}
+                    disabled={selectedVariant.stock === 0}
+                  />
+                </div>
+
+                {/* 🆕 PRECIOS DINÁMICOS */}
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 backdrop-blur-sm p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-gray-200/50 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-600 font-medium">Precio Mayoreo (4+ pzs):</span>
-                    <span className="text-2xl font-bold text-green-600">{formatCurrency(selectedVariant.price_mayoreo)}</span>
+                    <span className="text-gray-600 font-medium text-sm sm:text-base">Precio unitario:</span>
+                    <span className="text-lg sm:text-xl font-bold text-gray-800">
+                      {formatCurrency(getUnitPrice())}
+                    </span>
                   </div>
                   
-                  {/* Badge de ahorro */}
-                  {selectedVariant.price_menudeo > selectedVariant.price_mayoreo && (
-                    <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 mt-4">
-                      <p className="text-green-700 font-semibold text-sm text-center">
-                        💰 Ahorra {formatCurrency(selectedVariant.price_menudeo - selectedVariant.price_mayoreo)} por pieza comprando 4 o más
+                  {quantity > 1 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600 font-medium text-sm sm:text-base">
+                        Total ({quantity} pzs):
+                      </span>
+                      <span className="text-xl sm:text-2xl font-bold text-primary">
+                        {formatCurrency(getTotalPrice())}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Información de precios mayoreo/menudeo */}
+                  <div className="pt-3 border-t border-gray-200/50 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">Precio menudeo:</span>
+                      <span className="text-gray-700">{formatCurrency(selectedVariant.price_menudeo)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">Precio mayoreo (4+ pzs):</span>
+                      <span className="text-green-600 font-medium">{formatCurrency(selectedVariant.price_mayoreo)}</span>
+                    </div>
+                  </div>
+                  
+                  {/* 🆕 MENSAJE DE AHORRO DINÁMICO */}
+                  {getSavingsMessage() && (
+                    <div className={`rounded-lg sm:rounded-xl p-3 mt-4 ${
+                      getSavingsMessage().type === 'success' 
+                        ? 'bg-green-500/10 border border-green-500/20' 
+                        : 'bg-blue-500/10 border border-blue-500/20'
+                    }`}>
+                      <p className={`font-semibold text-xs sm:text-sm text-center ${
+                        getSavingsMessage().type === 'success' ? 'text-green-700' : 'text-blue-700'
+                      }`}>
+                        {getSavingsMessage().type === 'success' ? '💰' : '💡'} {getSavingsMessage().message}
                       </p>
                     </div>
                   )}
                 </div>
 
-                <div className="mt-auto pt-6">
+                {/* 🆕 BOTÓN AGREGAR AL CARRITO MEJORADO */}
+                <div className="mt-auto pt-4 sm:pt-6">
                   <button 
                     onClick={handleAddToCart} 
-                    className={`w-full py-4 rounded-2xl text-lg font-bold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
+                    className={`w-full py-3 sm:py-4 rounded-xl sm:rounded-2xl text-base sm:text-lg font-bold transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
                       selectedVariant.stock === 0
                         ? 'bg-gray-400 text-white cursor-not-allowed'
                         : !user 
@@ -303,24 +454,21 @@ const ProductDetailModal = ({ product, onClose }) => {
                      <span className="flex items-center justify-center gap-2">
                        {selectedVariant.stock === 0 ? (
                          <>
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                           </svg>
+                           <FiX className="w-4 h-4 sm:w-5 sm:h-5" />
                            Agotado
                          </>
                        ) : !user ? (
                          <>
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                           </svg>
+                           <FiUser className="w-4 h-4 sm:w-5 sm:h-5" />
                            Inicia sesión para comprar
                          </>
                        ) : (
                          <>
-                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-2.5 5M7 13l2.5 5m6-5v6a2 2 0 11-4 0v-6m4 0V9a2 2 0 00-2-2V7a2 2 0 00-2-2H9a2 2 0 00-2 2v0a2 2 0 00-2 2v2" />
-                           </svg>
-                           Agregar al Carrito
+                           <FiShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+                           {quantity === 1 
+                             ? 'Agregar al Carrito' 
+                             : `Agregar ${quantity} al Carrito`
+                           }
                          </>
                        )}
                      </span>

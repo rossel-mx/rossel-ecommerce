@@ -2,6 +2,7 @@
  * @file ProductForm.jsx
  * @description Formulario CRUD completo para la gestión de productos y sus variantes.
  * Maneja tanto creación como edición de productos existentes.
+ * ✅ ACTUALIZADO: Ahora elimina imágenes huérfanas de Cloudinary durante edición.
  *
  * @requires react
  * @requires supabaseClient
@@ -40,6 +41,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   const [product, setProduct] = useState(INITIAL_PRODUCT_STATE);
   const [loading, setLoading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  
+  // ✅ NUEVO: Estado para trackear imágenes originales
+  const [originalImageUrls, setOriginalImageUrls] = useState([]);
+  
   const fileInputRefs = useRef([]);
 
   // --- 3. EFECTOS DE REACT ---
@@ -57,6 +62,11 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     if (editingProduct) {
       console.log("LOG: [ProductForm] Cargando producto para editar:", editingProduct);
       setIsEditMode(true);
+      
+      // ✅ NUEVO: Guardar URLs originales para comparar después
+      const originalUrls = editingProduct.variants?.flatMap(v => v.image_urls || []) || [];
+      setOriginalImageUrls(originalUrls);
+      console.log("LOG: [ProductForm] URLs originales guardadas para tracking:", originalUrls);
       
       // Convertir las variantes del formato de la base de datos al formato del formulario
       const formattedVariants = editingProduct.variants?.map(variant => ({
@@ -79,8 +89,6 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         variants: formattedVariants
       });
 
-      // ❌ LÍNEA ELIMINADA: toast.success(`Editando: ${editingProduct.name}`);
-      // Se eliminó para evitar toast duplicado. La UI ya muestra claramente el modo edición.
       console.log("LOG: [ProductForm] Modo edición configurado correctamente para:", editingProduct.name);
 
     } else {
@@ -129,6 +137,9 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     });
     
     setIsEditMode(false);
+    
+    // ✅ NUEVO: Limpiar URLs originales
+    setOriginalImageUrls([]);
     
     // Limpiar todos los inputs de archivo
     fileInputRefs.current.forEach(ref => {
@@ -251,7 +262,48 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     onFormSubmit(); // Esto notificará al padre para limpiar editingProduct
   };
 
-  // --- 7. LÓGICA DE ENVÍO Y GUARDADO ---
+  // --- 7. ✅ NUEVA FUNCIÓN: DETECTAR Y ELIMINAR IMÁGENES HUÉRFANAS ---
+  const cleanupOrphanedImages = async () => {
+    if (!isEditMode || originalImageUrls.length === 0) {
+      console.log("LOG: [ProductForm] No hay imágenes originales que limpiar.");
+      return;
+    }
+
+    // Obtener todas las URLs actuales del producto
+    const currentImageUrls = product.variants.flatMap(variant => variant.image_urls || []);
+    
+    // Detectar imágenes que estaban originalmente pero ya no están
+    const orphanedImages = originalImageUrls.filter(originalUrl => 
+      !currentImageUrls.includes(originalUrl)
+    );
+
+    if (orphanedImages.length === 0) {
+      console.log("LOG: [ProductForm] No se detectaron imágenes huérfanas.");
+      return;
+    }
+
+    console.log(`LOG: [ProductForm] Detectadas ${orphanedImages.length} imágenes huérfanas para eliminar:`, orphanedImages);
+
+    try {
+      // Eliminar imágenes huérfanas de Cloudinary
+      const { data, error } = await supabase.functions.invoke('delete-cloudinary-images', {
+        body: { imageUrls: orphanedImages }
+      });
+
+      if (error) {
+        console.warn("WARN: [ProductForm] Error al eliminar imágenes de Cloudinary:", error);
+        toast.error("Advertencia: No se pudieron eliminar algunas imágenes de Cloudinary");
+      } else {
+        console.log("LOG: [ProductForm] Imágenes huérfanas eliminadas exitosamente de Cloudinary:", data);
+        toast.success(`${orphanedImages.length} imágenes eliminadas de Cloudinary`);
+      }
+    } catch (error) {
+      console.error("ERROR: [ProductForm] Error al invocar función de eliminación:", error);
+      toast.error("Error al limpiar imágenes eliminadas");
+    }
+  };
+
+  // --- 8. LÓGICA DE ENVÍO Y GUARDADO ---
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -351,6 +403,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
           }
         }
 
+        // ✅ NUEVO: LIMPIAR IMÁGENES HUÉRFANAS DESPUÉS DE ACTUALIZAR BD
+        console.log("LOG: [ProductForm] Base de datos actualizada, limpiando imágenes huérfanas...");
+        await cleanupOrphanedImages();
+
         console.log("LOG: [ProductForm] Producto actualizado exitosamente.");
         toast.dismiss();
         toast.success("¡Producto actualizado con éxito!");
@@ -395,7 +451,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     }
   };
 
-  // --- 8. RENDERIZADO DEL FORMULARIO ---
+  // --- 9. RENDERIZADO DEL FORMULARIO ---
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-6">
       <Toaster position="top-right" />
@@ -555,7 +611,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
             </div>
           )}
           
-          {/* Viista previa de nuevas imágenes */}
+          {/* Vista previa de nuevas imágenes */}
           {variant.newImageFiles && variant.newImageFiles.length > 0 && (
             <div className="mt-2">
               <p className="text-sm text-gray-600 mb-2">Nuevas imágenes a subir:</p>

@@ -25,7 +25,7 @@ const standardColors = [
 
 const INITIAL_VARIANT_STATE = {
   color: '', stock: 0, price: '', price_menudeo: '', price_mayoreo: '',
-  image_urls: [], newImageFiles: [],
+  image_urls: [], newImageFiles: [], webpFiles: [], // ✅ NUEVO: Array para WebP
 };
 
 const INITIAL_PRODUCT_STATE = {
@@ -77,7 +77,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         price_menudeo: variant.price_menudeo?.toString() || '',
         price_mayoreo: variant.price_mayoreo?.toString() || '',
         image_urls: variant.image_urls || [],
-        newImageFiles: []
+        newImageFiles: [],
+        webpFiles: [] // ✅ NUEVO: Array para WebP en edición
       })) || [{ ...INITIAL_VARIANT_STATE }];
 
       setProduct({
@@ -116,8 +117,19 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   const resetForm = () => {
     console.log("LOG: [ProductForm] Iniciando reseteo completo del formulario...");
     
-    // Limpiar URLs de objetos en memoria para evitar memory leaks
-    cleanupObjectUrls(product.variants);
+      // ✅ LIMPIAR URLS DE OBJETOS Y ARCHIVOS WEBP
+      cleanupObjectUrls(product.variants);
+      
+      // 🆕 NUEVO: Limpiar archivos WebP temporales
+      product.variants.forEach(variant => {
+        if (variant.webpFiles) {
+          variant.webpFiles.forEach(file => {
+            if (file && typeof file === 'object' && file.constructor === File) {
+              URL.revokeObjectURL(URL.createObjectURL(file));
+            }
+          });
+        }
+      });
     
     // Resetear el estado del producto
     setProduct({
@@ -132,7 +144,8 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         price_menudeo: '', 
         price_mayoreo: '',
         image_urls: [], 
-        newImageFiles: [] 
+        newImageFiles: [],
+        webpFiles: [] // ✅ NUEVO: Array para WebP
       }]
     });
     
@@ -176,36 +189,99 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     
     try {
       const filesArray = Array.from(e.target.files);
-      const compressionOptions = { maxSizeMB: 2, maxWidthOrHeight: 1920, useWebWorker: true };
+      const newImageFiles = [];
+      const webpFiles = [];
       
-      console.log("LOG: [ProductForm] Iniciando compresión de imágenes...");
-      const compressedFiles = await Promise.all(
-        filesArray.map(file => imageCompression(file, compressionOptions))
-      );
+      // 🆕 NUEVO: Clasificar archivos SIN subir inmediatamente
+      for (const file of filesArray) {
+        console.log(`LOG: [ProductForm] Analizando archivo: ${file.name} (${file.type})`);
+        
+        if (file.name.toLowerCase().endsWith('.webp')) {
+          // ✅ ARCHIVO WEBP - Guardar para upload posterior
+          console.log(`LOG: [ProductForm] Archivo WebP detectado: ${file.name} - Guardado para upload al guardar producto`);
+          
+          // Validar tamaño del WebP (máximo 10MB)
+          if (file.size > 10 * 1024 * 1024) {
+            console.error(`ERROR: [ProductForm] Archivo WebP muy grande: ${Math.round(file.size / 1024 / 1024)}MB`);
+            toast.error(`Archivo ${file.name} es muy grande (máximo 10MB)`);
+            continue;
+          }
+          
+          webpFiles.push(file);
+          
+        } else {
+          // ✅ ARCHIVO NORMAL - Comprimir y guardar para upload posterior
+          console.log(`LOG: [ProductForm] Archivo normal detectado: ${file.name} - Aplicando compresión`);
+          
+          const compressionOptions = { 
+            maxSizeMB: 2, 
+            maxWidthOrHeight: 1920, 
+            useWebWorker: true 
+          };
+          
+          console.log(`LOG: [ProductForm] Comprimiendo archivo: ${file.name}`);
+          const compressedFile = await imageCompression(file, compressionOptions);
+          console.log(`LOG: [ProductForm] Archivo comprimido: ${file.name} (${Math.round(file.size / 1024)}KB → ${Math.round(compressedFile.size / 1024)}KB)`);
+          
+          newImageFiles.push(compressedFile);
+        }
+      }
       
+      // ✅ AGREGAR TODOS LOS ARCHIVOS A LOS ARRAYS TEMPORALES
       const updatedVariants = [...product.variants];
-      updatedVariants[index].newImageFiles.push(...compressedFiles);
+      if (newImageFiles.length > 0) {
+        updatedVariants[index].newImageFiles.push(...newImageFiles);
+        console.log(`LOG: [ProductForm] ${newImageFiles.length} archivos normales agregados a cola de upload`);
+      }
+      if (webpFiles.length > 0) {
+        updatedVariants[index].webpFiles.push(...webpFiles);
+        console.log(`LOG: [ProductForm] ${webpFiles.length} archivos WebP agregados a cola de upload`);
+      }
       setProduct(prev => ({ ...prev, variants: updatedVariants }));
       
       toast.dismiss();
-      toast.success(`${compressedFiles.length} imágenes listas para subir.`);
-      console.log(`LOG: [ProductForm] ${compressedFiles.length} imágenes comprimidas y añadidas a la variante ${index}.`);
+      
+      // 🆕 TOAST INFORMATIVO
+      const webpCount = webpFiles.length;
+      const normalCount = newImageFiles.length;
+      
+      if (webpCount > 0 && normalCount > 0) {
+        toast.success(`✅ ${webpCount} WebP + ${normalCount} imágenes preparadas para subir al guardar`);
+      } else if (webpCount > 0) {
+        toast.success(`✅ ${webpCount} archivos WebP preparados para upload directo`);
+      } else {
+        toast.success(`✅ ${normalCount} imágenes comprimidas y preparadas`);
+      }
+      
+      console.log(`LOG: [ProductForm] Archivos preparados - WebP: ${webpCount}, Normales: ${normalCount}`);
       
     } catch (error) {
       console.error("ERROR: [ProductForm] Error al procesar imágenes:", error);
       toast.dismiss();
-      toast.error('Error al procesar imágenes.');
+      toast.error(`Error al procesar imágenes: ${error.message}`);
     }
   };
   
   const handleRemoveNewImage = (variantIndex, fileToRemove) => {
-    console.log(`LOG: [ProductForm] Removiendo nueva imagen de variante ${variantIndex}...`);
+    console.log(`LOG: [ProductForm] Removiendo imagen normal de variante ${variantIndex}...`);
     
     // Liberar la URL del objeto antes de removerlo
     URL.revokeObjectURL(URL.createObjectURL(fileToRemove));
     
     const updatedVariants = [...product.variants];
     updatedVariants[variantIndex].newImageFiles = updatedVariants[variantIndex].newImageFiles.filter(f => f !== fileToRemove);
+    setProduct(prev => ({ ...prev, variants: updatedVariants }));
+  };
+
+  // ✅ NUEVA FUNCIÓN: Remover archivos WebP
+  const handleRemoveWebPFile = (variantIndex, fileToRemove) => {
+    console.log(`LOG: [ProductForm] Removiendo archivo WebP de variante ${variantIndex}...`);
+    
+    // Liberar la URL del objeto antes de removerlo
+    URL.revokeObjectURL(URL.createObjectURL(fileToRemove));
+    
+    const updatedVariants = [...product.variants];
+    updatedVariants[variantIndex].webpFiles = updatedVariants[variantIndex].webpFiles.filter(f => f !== fileToRemove);
     setProduct(prev => ({ ...prev, variants: updatedVariants }));
   };
 
@@ -222,7 +298,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     console.log("LOG: [ProductForm] Añadiendo nueva variante...");
     setProduct(prev => ({
       ...prev,
-      variants: [...prev.variants, { ...INITIAL_VARIANT_STATE, newImageFiles: [] }]
+      variants: [...prev.variants, { ...INITIAL_VARIANT_STATE, newImageFiles: [], webpFiles: [] }]
     }));
   };
 
@@ -336,11 +412,46 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
       if (signatureError) throw signatureError;
       const { signature, timestamp, eager } = signatureData;
       
-      console.log("LOG: [ProductForm] Firma de Cloudinary obtenida, procesando variantes...");
+      console.log("LOG: [ProductForm] Firma de Cloudinary obtenida, procesando archivos...");
       
       for (const [variantIndex, variant] of product.variants.entries()) {
+        console.log(`LOG: [ProductForm] Procesando variante ${variantIndex}:`, {
+          webpFiles: variant.webpFiles?.length || 0,
+          newImageFiles: variant.newImageFiles?.length || 0
+        });
+        
+        // ✅ SUBIR ARCHIVOS WEBP DIRECTAMENTE (SIN TRANSFORMACIONES)
+        if (variant.webpFiles && variant.webpFiles.length > 0) {
+          console.log(`LOG: [ProductForm] Subiendo ${variant.webpFiles.length} archivos WebP directamente...`);
+          
+          for (const webpFile of variant.webpFiles) {
+            console.log(`LOG: [ProductForm] Subiendo WebP: ${webpFile.name}`);
+            
+            const formData = new FormData();
+            formData.append('file', webpFile);
+            
+            const { data: uploadResult, error: uploadError } = await supabase.functions.invoke('upload-direct-webp', {
+              body: formData
+            });
+            
+            if (uploadError) {
+              console.error(`ERROR: [ProductForm] Error al subir WebP ${webpFile.name}:`, uploadError);
+              throw new Error(`Error al subir ${webpFile.name}: ${uploadError.message}`);
+            }
+            
+            if (!uploadResult.success) {
+              console.error(`ERROR: [ProductForm] Upload WebP falló para ${webpFile.name}:`, uploadResult);
+              throw new Error(`Upload falló para ${webpFile.name}: ${uploadResult.error}`);
+            }
+            
+            console.log(`LOG: [ProductForm] ✅ WebP subido: ${webpFile.name} → ${uploadResult.data.secure_url}`);
+            variant.image_urls.push(uploadResult.data.secure_url);
+          }
+        }
+        
+        // ✅ SUBIR ARCHIVOS NORMALES CON TRANSFORMACIONES
         if (variant.newImageFiles && variant.newImageFiles.length > 0) {
-          console.log(`LOG: [ProductForm] Subiendo ${variant.newImageFiles.length} imágenes para variante ${variantIndex}...`);
+          console.log(`LOG: [ProductForm] Subiendo ${variant.newImageFiles.length} archivos normales con transformaciones...`);
           
           const uploadPromises = variant.newImageFiles.map(file => {
             const formData = new FormData();
@@ -366,7 +477,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
           });
           variant.image_urls.push(...newUrls);
           
-          console.log(`LOG: [ProductForm] ${newUrls.length} imágenes subidas exitosamente para variante ${variantIndex}.`);
+          console.log(`LOG: [ProductForm] ✅ ${newUrls.length} archivos normales subidos con transformaciones`);
         }
       }
       console.log(`LOG: [ProductForm] Todas las nuevas imágenes han sido subidas a Cloudinary.`);
@@ -627,10 +738,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
             </div>
           )}
           
-          {/* Vista previa de nuevas imágenes */}
+          {/* Vista previa de nuevas imágenes normales */}
           {variant.newImageFiles && variant.newImageFiles.length > 0 && (
             <div className="mt-2">
-              <p className="text-sm text-gray-600 mb-2">Nuevas imágenes a subir:</p>
+              <p className="text-sm text-gray-600 mb-2">Imágenes normales a subir:</p>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                 {variant.newImageFiles.map((file, i) => (
                   <div key={i} className="relative group aspect-square">
@@ -642,6 +753,34 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
                     <button 
                       type="button" 
                       onClick={() => handleRemoveNewImage(index, file)} 
+                      className="absolute -top-2 -right-2 bg-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <FiXCircle className="text-red-500"/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NUEVO: Vista previa de archivos WebP */}
+          {variant.webpFiles && variant.webpFiles.length > 0 && (
+            <div className="mt-2">
+              <p className="text-sm text-gray-600 mb-2">Archivos WebP a subir (directo):</p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                {variant.webpFiles.map((file, i) => (
+                  <div key={i} className="relative group aspect-square border-2 border-green-200 rounded-md">
+                    <img 
+                      src={URL.createObjectURL(file)} 
+                      className="w-full h-full object-cover rounded-md"
+                      alt={`WebP preview ${i + 1}`}
+                    />
+                    <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-1 py-0.5 rounded">
+                      WebP
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => handleRemoveWebPFile(index, file)} 
                       className="absolute -top-2 -right-2 bg-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <FiXCircle className="text-red-500"/>

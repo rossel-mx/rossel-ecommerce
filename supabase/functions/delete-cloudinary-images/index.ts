@@ -1,8 +1,8 @@
 /**
  * @file /supabase/functions/delete-cloudinary-images/index.ts
  * @description Edge Function segura para eliminar una o más imágenes de Cloudinary.
- * Esta versión definitiva y robusta asegura que no haya errores de sintaxis y maneja
- * la eliminación de imágenes usando la API de Administración de Cloudinary de forma segura.
+ * ✅ VERSIÓN CORREGIDA: Ahora usa el formato correcto para el API Destroy de Cloudinary
+ * y incluye invalidación de CDN para eliminación completa.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -19,21 +19,39 @@ async function sha1(data: string): Promise<string> {
 
 /**
  * Extrae el public_id de una URL de Cloudinary.
+ * ✅ CORREGIDO: Ahora remueve correctamente la extensión del archivo
  * @param {string} url - La URL de la imagen de Cloudinary.
- * @returns {string | null} - El public_id extraído.
+ * @returns {string | null} - El public_id extraído SIN extensión.
  */
 function extractPublicIdFromUrl(url: string): string | null {
   try {
-    // Este regex busca el ID público, incluso si hay transformaciones en la URL.
-    const regex = /\/upload\/(?:v\d+\/|.*\/)?([^\/]+(?:\/[^\/]+)*?)(?:\.[^.\/]+)?$/;
+    console.log(`LOG: [Delete Fn] Procesando URL: ${url}`);
+    
+    // ✅ REGEX CORREGIDO: Extraer todo después de /upload/ hasta antes de la extensión
+    const regex = /\/upload\/(?:v\d+\/)?(?:.*?\/)?([^\/]+)\.[^.\/]+$/;
     const match = url.match(regex);
-    return match && match[1] ? match[1] : null;
-  } catch {
+    
+    if (match && match[1]) {
+      const publicId = match[1];
+      console.log(`LOG: [Delete Fn] Public ID extraído: "${publicId}"`);
+      return publicId;
+    }
+    
+    // ✅ FALLBACK: Si el regex no funciona, extraer manualmente
+    const urlParts = url.split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    const publicIdWithoutExtension = lastPart.replace(/\.[^.]+$/, '');
+    
+    console.log(`LOG: [Delete Fn] Fallback - Public ID extraído: "${publicIdWithoutExtension}"`);
+    return publicIdWithoutExtension;
+    
+  } catch (error) {
+    console.error(`ERROR: [Delete Fn] Error extrayendo public_id de URL ${url}:`, error);
     return null;
   }
 }
 
-console.log("LOG: Función 'delete-cloudinary-images' v3.0 (Corregida) inicializada.");
+console.log("LOG: Función 'delete-cloudinary-images' v4.0 (CORREGIDA) inicializada.");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,28 +84,65 @@ serve(async (req) => {
 
     console.log(`LOG: [Delete Fn] Public IDs a eliminar:`, publicIds);
 
-    // Creamos una promesa de eliminación para cada public_id.
+    // ✅ CORREGIDO: Usar URLSearchParams en lugar de FormData
     const deletePromises = publicIds.map(async (publicId) => {
       const timestamp = Math.round(Date.now() / 1000);
-      const stringToSign = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
+      
+      // ✅ CORREGIDO: Incluir invalidate en la firma
+      const stringToSign = `invalidate=true&public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
       const signature = await sha1(stringToSign);
 
-      const formData = new FormData();
-      formData.append('public_id', publicId);
-      formData.append('api_key', apiKey);
-      formData.append('timestamp', timestamp.toString());
-      formData.append('signature', signature);
+      // ✅ CORREGIDO: Usar URLSearchParams para application/x-www-form-urlencoded
+      const body = new URLSearchParams({
+        'public_id': publicId,
+        'api_key': apiKey,
+        'timestamp': timestamp.toString(),
+        'signature': signature,
+        'invalidate': 'true'  // ✅ CRÍTICO: Esto limpia el cache del CDN
+      });
 
       const deleteUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`;
       
-      const response = await fetch(deleteUrl, { method: 'POST', body: formData });
-      return response.json();
+      console.log(`LOG: [Delete Fn] Eliminando public_id: ${publicId}`);
+      console.log(`LOG: [Delete Fn] String to sign: invalidate=true&public_id=${publicId}&timestamp=${timestamp}[SECRET]`);
+      
+      // ✅ CORREGIDO: Headers y body correctos para Destroy API
+      const response = await fetch(deleteUrl, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: body.toString()
+      });
+      
+      const result = await response.json();
+      console.log(`LOG: [Delete Fn] Respuesta para ${publicId}:`, result);
+      
+      return result;
     });
 
     const results = await Promise.all(deletePromises);
-    console.log("LOG: [Delete Fn] Resultados de la API de Cloudinary:", results);
+    console.log("LOG: [Delete Fn] Resultados finales de la API de Cloudinary:", results);
 
-    return new Response(JSON.stringify({ success: true, results }), {
+    // ✅ MEJORADO: Verificar si hubo errores en alguna eliminación
+    const errors = results.filter(result => result.error);
+    const successes = results.filter(result => result.result === 'ok');
+
+    if (errors.length > 0) {
+      console.warn("WARN: [Delete Fn] Algunas eliminaciones fallaron:", errors);
+    }
+
+    console.log(`LOG: [Delete Fn] Eliminaciones exitosas: ${successes.length}/${results.length}`);
+
+    return new Response(JSON.stringify({ 
+      success: errors.length === 0, 
+      results,
+      summary: {
+        total: results.length,
+        successful: successes.length,
+        failed: errors.length
+      }
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

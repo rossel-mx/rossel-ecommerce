@@ -295,6 +295,22 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         toast.error("Advertencia: No se pudieron eliminar algunas imágenes de Cloudinary");
       } else {
         console.log("LOG: [ProductForm] Imágenes huérfanas eliminadas exitosamente de Cloudinary:", data);
+        console.log("LOG: [ProductForm] DETALLE de respuesta Cloudinary:", JSON.stringify(data, null, 2));
+        
+        // ✅ NUEVO: Verificar si realmente se eliminaron
+        if (data.success && data.results) {
+          data.results.forEach((result, index) => {
+            console.log(`LOG: [ProductForm] Resultado ${index + 1}:`, result);
+            if (result.result === 'ok') {
+              console.log(`LOG: [ProductForm] ✅ Imagen ${index + 1} eliminada exitosamente`);
+            } else if (result.result === 'not found') {
+              console.log(`LOG: [ProductForm] ⚠️ Imagen ${index + 1} no encontrada (posiblemente ya eliminada)`);
+            } else {
+              console.log(`LOG: [ProductForm] ❌ Error en imagen ${index + 1}:`, result);
+            }
+          });
+        }
+        
         toast.success(`${orphanedImages.length} imágenes eliminadas de Cloudinary`);
       }
     } catch (error) {

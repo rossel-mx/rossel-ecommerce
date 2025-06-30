@@ -14,6 +14,7 @@
  * - ✅ Layout mejorado con mejor espaciado y tipografía
  * - ✅ IMÁGENES CORREGIDAS: object-contain para mostrar productos completos
  * - 🆕 SELECTOR DE CANTIDAD: Input manual + botones +/- con precios dinámicos
+ * - 🆕 COLORES ACTUALIZADOS: 32 colores estándar (era 18, ahora incluye Dorado, Plateado, etc.)
  *
  * @props {object} product - El objeto del producto base a cargar (contiene id, name, description).
  * @props {function} onClose - Función callback para cerrar el modal.
@@ -26,13 +27,50 @@ import { useUser } from "../context/UserContext";
 import toast from "react-hot-toast";
 import { FiMinus, FiPlus, FiShoppingCart, FiUser, FiX } from "react-icons/fi";
 
-// Mapa de colores para los selectores visuales.
+// 🆕 ACTUALIZADO: Mapa completo de 32 colores estándar para los selectores visuales
 const colorMap = {
-  'negro': '#000000', 'blanco': '#FFFFFF', 'gris': '#808080', 'rojo': '#DC2626',
-  'azul': '#2563EB', 'amarillo': '#FBBF24', 'verde': '#16A34A', 'morado': '#7C3AED',
-  'naranja': '#F97316', 'cafe': '#78350F', 'beige': '#F5F5DC', 'camel': '#C19A6B',
-  'tinto': '#800000', 'vino': '#722F37', 'kaki': '#F0E68C', 'rosa': '#EC4899',
-  'celeste': '#38BDF8', 'marino': '#000080',
+  // Básicos
+  'negro': '#000000',
+  'blanco': '#FFFFFF', 
+  'gris': '#808080',
+  'beige': '#F5F5DC',
+  'crema': '#FFFDD0',
+  'marfil': '#FFFFF0',
+  
+  // Cálidos
+  'rojo': '#DC2626',
+  'rosa': '#EC4899',
+  'coral': '#FF7F50',
+  'naranja': '#F97316',
+  'amarillo': '#FBBF24',
+  'dorado': '#FFD700',
+  'cafe': '#78350F',
+  'marrón': '#A52A2A',
+  'marron': '#A52A2A', // Variación sin tilde
+  'camel': '#C19A6B',
+  'tinto': '#800000',
+  'vino': '#722F37',
+  
+  // Fríos
+  'azul': '#2563EB',
+  'marino': '#000080',
+  'celeste': '#38BDF8',
+  'verde': '#16A34A',
+  'kaki': '#F0E68C',
+  'morado': '#7C3AED',
+  'violeta': '#8A2BE2',
+  'lila': '#DDA0DD',
+  
+  // Metálicos/Especiales
+  'plateado': '#C0C0C0',
+  'bronce': '#CD7F32',
+  'cobre': '#B87333',
+  
+  // Neutros modernos
+  'topo': '#8B7765',
+  'hueso': '#F9F6EE',
+  'arena': '#C2B280',
+  'tierra': '#8B4513'
 };
 
 // Componente Selector de Cantidad
@@ -183,7 +221,7 @@ const ProductDetailModal = ({ product, onClose }) => {
     console.log("LOG: [Modal] El usuario seleccionó la variante de color:", variant);
     setSelectedVariant(variant);
     setQuantity(1); // Reset cantidad al cambiar variante
-    if (variant.image_urls && variant.image_urls.length > 0) {
+    if (variant.image_urls && variant.image_urls.length > 1) {
       setImageLoading(true);
       setMainImage(variant.image_urls[0]);
     } else {
@@ -345,8 +383,11 @@ const ProductDetailModal = ({ product, onClose }) => {
                     </h3>
                     <div className="flex flex-wrap gap-2 sm:gap-3">
                       {variants.map(variant => {
-                        const backgroundColor = colorMap[variant.color?.toLowerCase()] || '#cccccc';
+                        // 🆕 MEJORADO: Ahora busca el color con mejor compatibilidad
+                        const colorKey = variant.color?.toLowerCase();
+                        const backgroundColor = colorMap[colorKey] || colorMap[colorKey?.replace('ó', 'o')] || '#cccccc';
                         const isSelected = selectedVariant.id === variant.id;
+                        
                         return (
                           <button 
                             key={variant.id} 
@@ -362,7 +403,7 @@ const ProductDetailModal = ({ product, onClose }) => {
                             {isSelected && (
                               <div className="absolute inset-0 rounded-full border-2 border-white shadow-inner"></div>
                             )}
-                            {backgroundColor === '#FFFFFF' && (
+                            {(backgroundColor === '#FFFFFF' || colorKey === 'blanco') && (
                               <div className="absolute inset-1 rounded-full border border-gray-200"></div>
                             )}
                           </button>

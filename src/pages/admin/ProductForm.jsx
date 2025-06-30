@@ -3,6 +3,7 @@
  * @description Formulario CRUD completo para la gestión de productos y sus variantes.
  * Maneja tanto creación como edición de productos existentes.
  * ✅ ACTUALIZADO: Ahora elimina imágenes huérfanas de Cloudinary durante edición.
+ * 🆕 NUEVO: Selector de colores híbrido integrado con 32 colores estándar + autocompletado + corrección automática
  *
  * @requires react
  * @requires supabaseClient
@@ -13,15 +14,103 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../../services/supabaseClient";
 import toast, { Toaster } from "react-hot-toast";
-import { FiX, FiPlus, FiXCircle } from 'react-icons/fi';
+import { FiX, FiPlus, FiXCircle, FiChevronDown } from 'react-icons/fi';
 import imageCompression from 'browser-image-compression';
 
-// --- 1. CONFIGURACIÓN CENTRALIZADA ---
+// --- 1. CONFIGURACIÓN CENTRALIZADA CON COLORES EXPANDIDOS ---
 
+// ✅ NUEVA: Lista expandida de 32 colores estándar organizados
 const standardColors = [
-  'Amarillo', 'Azul', 'Beige', 'Blanco', 'Cafe', 'Camel', 'Celeste', 'Gris', 
-  'Kaki', 'Marino', 'Morado', 'Naranja', 'Negro', 'Rojo', 'Rosa', 'Tinto', 'Verde', 'Vino'
+  // Básicos
+  'Negro', 'Blanco', 'Gris', 'Beige', 'Crema', 'Marfil',
+  // Cálidos
+  'Rojo', 'Rosa', 'Coral', 'Naranja', 'Amarillo', 'Dorado', 'Cafe', 'Marrón', 'Camel', 'Tinto', 'Vino',
+  // Fríos  
+  'Azul', 'Marino', 'Celeste', 'Verde', 'Kaki', 'Morado', 'Violeta', 'Lila',
+  // Metálicos/Especiales
+  'Plateado', 'Bronce', 'Cobre',
+  // Neutros modernos
+  'Topo', 'Hueso', 'Arena', 'Tierra'
 ].sort();
+
+// ✅ NUEVO: Mapeo de colores para autocompletado y corrección automática
+const colorMapping = {
+  // Variaciones de negro
+  'negro': 'Negro', 'black': 'Negro', 'negra': 'Negro',
+  // Variaciones de blanco
+  'blanco': 'Blanco', 'white': 'Blanco', 'blanca': 'Blanco',
+  // Variaciones de rojo
+  'rojo': 'Rojo', 'red': 'Rojo', 'roja': 'Rojo', 'colorado': 'Rojo',
+  // Variaciones de azul
+  'azul': 'Azul', 'blue': 'Azul', 'navy': 'Marino', 'marino': 'Marino',
+  // Variaciones de verde
+  'verde': 'Verde', 'green': 'Verde', 'kaki': 'Kaki', 'oliva': 'Kaki',
+  // Variaciones de amarillo
+  'amarillo': 'Amarillo', 'yellow': 'Amarillo', 'dorado': 'Dorado', 'gold': 'Dorado',
+  // Variaciones de rosa
+  'rosa': 'Rosa', 'pink': 'Rosa', 'rosado': 'Rosa', 'coral': 'Coral',
+  // Variaciones de morado
+  'morado': 'Morado', 'purple': 'Morado', 'violeta': 'Violeta', 'lila': 'Lila',
+  // Variaciones de naranja
+  'naranja': 'Naranja', 'orange': 'Naranja',
+  // Variaciones de gris
+  'gris': 'Gris', 'gray': 'Gris', 'grey': 'Gris', 'plateado': 'Plateado', 'silver': 'Plateado',
+  // Variaciones de café/marrón
+  'cafe': 'Cafe', 'coffee': 'Cafe', 'marron': 'Marrón', 'brown': 'Marrón', 'camel': 'Camel',
+  // Variaciones de beige
+  'beige': 'Beige', 'crema': 'Crema', 'cream': 'Crema', 'hueso': 'Hueso', 'marfil': 'Marfil',
+  // Otros
+  'tinto': 'Tinto', 'vino': 'Vino', 'wine': 'Vino', 'celeste': 'Celeste', 'topo': 'Topo',
+  'arena': 'Arena', 'tierra': 'Tierra', 'bronce': 'Bronce', 'bronze': 'Bronce', 'cobre': 'Cobre'
+};
+
+// ✅ NUEVO: Colores organizados por categorías para el selector visual
+const colorCategories = {
+  basicos: ['Negro', 'Blanco', 'Gris', 'Beige', 'Crema', 'Marfil'],
+  calidos: ['Rojo', 'Rosa', 'Coral', 'Naranja', 'Amarillo', 'Dorado', 'Cafe', 'Marrón', 'Camel', 'Tinto', 'Vino'],
+  frios: ['Azul', 'Marino', 'Celeste', 'Verde', 'Kaki', 'Morado', 'Violeta', 'Lila'],
+  metalicos: ['Plateado', 'Dorado', 'Bronce', 'Cobre'],
+  neutros: ['Topo', 'Hueso', 'Arena', 'Tierra']
+};
+
+const categoryLabels = {
+  basicos: 'Básicos',
+  calidos: 'Cálidos', 
+  frios: 'Fríos',
+  metalicos: 'Metálicos',
+  neutros: 'Neutros'
+};
+
+// ✅ NUEVO: Utilidades de color integradas
+const ColorUtils = {
+  isValidColor: (color) => standardColors.includes(color),
+  
+  normalizeColor: (input) => {
+    const normalized = input.toLowerCase();
+    return colorMapping[normalized] || input;
+  },
+  
+  getSuggestions: (input) => {
+    if (!input) return [];
+    return standardColors.filter(color =>
+      color.toLowerCase().includes(input.toLowerCase())
+    ).slice(0, 5);
+  },
+
+  getColorPreview: (colorName) => {
+    const colorMap = {
+      'Negro': '#000000', 'Blanco': '#FFFFFF', 'Gris': '#808080', 'Beige': '#F5F5DC',
+      'Rojo': '#FF0000', 'Rosa': '#FFC0CB', 'Azul': '#0000FF', 'Verde': '#008000',
+      'Amarillo': '#FFFF00', 'Naranja': '#FFA500', 'Morado': '#800080', 'Dorado': '#FFD700',
+      'Plateado': '#C0C0C0', 'Marino': '#000080', 'Cafe': '#8B4513', 'Marrón': '#A52A2A',
+      'Crema': '#F5F5DC', 'Coral': '#FF7F50', 'Celeste': '#87CEEB', 'Kaki': '#F0E68C',
+      'Violeta': '#8A2BE2', 'Lila': '#DDA0DD', 'Bronce': '#CD7F32', 'Cobre': '#B87333',
+      'Tinto': '#722F37', 'Vino': '#722F37', 'Camel': '#C19A6B', 'Topo': '#8B7765',
+      'Hueso': '#F9F6EE', 'Arena': '#C2B280', 'Tierra': '#8B4513'
+    };
+    return colorMap[colorName] || '#CCCCCC';
+  }
+};
 
 const INITIAL_VARIANT_STATE = {
   color: '', stock: 0, price: '', price_menudeo: '', price_mayoreo: '',
@@ -45,7 +134,12 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   // ✅ NUEVO: Estado para trackear imágenes originales
   const [originalImageUrls, setOriginalImageUrls] = useState([]);
   
+  // 🆕 NUEVOS ESTADOS: Para el selector de colores híbrido
+  const [colorDropdownStates, setColorDropdownStates] = useState({});
+  const [colorSuggestions, setColorSuggestions] = useState({});
+  
   const fileInputRefs = useRef([]);
+  const colorDropdownRefs = useRef({});
 
   // --- 3. EFECTOS DE REACT ---
 
@@ -55,6 +149,24 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
       console.error("ERROR CRÍTICO: Variables VITE_CLOUDINARY... no definidas. Revisa .env.local y REINICIA el servidor.");
       toast.error("Error de configuración: Cloudinary no está configurado.");
     }
+  }, []);
+
+  // 🆕 NUEVO: Efecto para manejar clics fuera de los dropdowns de color
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      Object.keys(colorDropdownRefs.current).forEach(variantIndex => {
+        const ref = colorDropdownRefs.current[variantIndex];
+        if (ref && !ref.contains(event.target)) {
+          setColorDropdownStates(prev => ({
+            ...prev,
+            [variantIndex]: { ...prev[variantIndex], showDropdown: false, showSuggestions: false }
+          }));
+        }
+      });
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // --- EFECTO PARA MANEJAR LA EDICIÓN ---
@@ -89,6 +201,18 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         category: editingProduct.category || '',
         variants: formattedVariants
       });
+
+      // 🆕 NUEVO: Inicializar estados de color para cada variante
+      const colorStates = {};
+      formattedVariants.forEach((variant, index) => {
+        colorStates[index] = {
+          showDropdown: false,
+          showSuggestions: false,
+          selectedCategory: 'basicos'
+        };
+      });
+      setColorDropdownStates(colorStates);
+      setColorSuggestions({});
 
       console.log("LOG: [ProductForm] Modo edición configurado correctamente para:", editingProduct.name);
 
@@ -154,6 +278,10 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     // ✅ NUEVO: Limpiar URLs originales
     setOriginalImageUrls([]);
     
+    // 🆕 NUEVO: Resetear estados de colores
+    setColorDropdownStates({});
+    setColorSuggestions({});
+    
     // Limpiar todos los inputs de archivo
     fileInputRefs.current.forEach(ref => {
       if (ref) {
@@ -163,11 +291,127 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     
     // Limpiar el array de referencias
     fileInputRefs.current = [];
+    colorDropdownRefs.current = {};
     
     console.log("LOG: [ProductForm] Formulario reseteado completamente.");
   };
 
-  // --- 6. MANEJADORES DE ESTADO Y EVENTOS ---
+  // --- 6. 🆕 NUEVOS MANEJADORES PARA EL SELECTOR DE COLORES HÍBRIDO ---
+
+  const initializeColorState = (variantIndex) => {
+    if (!colorDropdownStates[variantIndex]) {
+      setColorDropdownStates(prev => ({
+        ...prev,
+        [variantIndex]: {
+          showDropdown: false,
+          showSuggestions: false,
+          selectedCategory: 'basicos'
+        }
+      }));
+    }
+  };
+
+  const handleColorInputChange = (variantIndex, inputValue) => {
+    console.log(`LOG: [ProductForm] Cambio en color de variante ${variantIndex}: ${inputValue}`);
+    
+    // Inicializar estado si no existe
+    initializeColorState(variantIndex);
+    
+    // Actualizar el valor del color en la variante
+    const updatedVariants = [...product.variants];
+    updatedVariants[variantIndex].color = inputValue;
+    setProduct(prev => ({ ...prev, variants: updatedVariants }));
+    
+    if (inputValue.trim() === '') {
+      setColorSuggestions(prev => ({ ...prev, [variantIndex]: [] }));
+      setColorDropdownStates(prev => ({
+        ...prev,
+        [variantIndex]: { ...prev[variantIndex], showSuggestions: false }
+      }));
+      return;
+    }
+
+    // 1. NORMALIZACIÓN AUTOMÁTICA
+    const normalized = ColorUtils.normalizeColor(inputValue);
+    
+    // Si se normalizó (ej: "red" → "Rojo"), actualizar el input después de un delay
+    if (normalized !== inputValue && ColorUtils.isValidColor(normalized)) {
+      setTimeout(() => {
+        const updatedVariants = [...product.variants];
+        updatedVariants[variantIndex].color = normalized;
+        setProduct(prev => ({ ...prev, variants: updatedVariants }));
+        
+        // Limpiar sugerencias después de normalización
+        setColorSuggestions(prev => ({ ...prev, [variantIndex]: [] }));
+        setColorDropdownStates(prev => ({
+          ...prev,
+          [variantIndex]: { ...prev[variantIndex], showSuggestions: false }
+        }));
+      }, 100);
+      return;
+    }
+
+    // 2. GENERAR SUGERENCIAS
+    const suggestions = ColorUtils.getSuggestions(inputValue);
+    setColorSuggestions(prev => ({ ...prev, [variantIndex]: suggestions }));
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [variantIndex]: { ...prev[variantIndex], showSuggestions: suggestions.length > 0 }
+    }));
+  };
+
+  const selectColorSuggestion = (variantIndex, color) => {
+    console.log(`LOG: [ProductForm] Seleccionando sugerencia de color: ${color} para variante ${variantIndex}`);
+    
+    const updatedVariants = [...product.variants];
+    updatedVariants[variantIndex].color = color;
+    setProduct(prev => ({ ...prev, variants: updatedVariants }));
+    
+    setColorSuggestions(prev => ({ ...prev, [variantIndex]: [] }));
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [variantIndex]: { ...prev[variantIndex], showSuggestions: false }
+    }));
+  };
+
+  const selectColorFromDropdown = (variantIndex, color) => {
+    console.log(`LOG: [ProductForm] Seleccionando color del dropdown: ${color} para variante ${variantIndex}`);
+    
+    const updatedVariants = [...product.variants];
+    updatedVariants[variantIndex].color = color;
+    setProduct(prev => ({ ...prev, variants: updatedVariants }));
+    
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [variantIndex]: { 
+        ...prev[variantIndex], 
+        showDropdown: false, 
+        showSuggestions: false 
+      }
+    }));
+  };
+
+  const toggleColorDropdown = (variantIndex) => {
+    initializeColorState(variantIndex);
+    
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [variantIndex]: { 
+        ...prev[variantIndex], 
+        showDropdown: !prev[variantIndex]?.showDropdown,
+        showSuggestions: false
+      }
+    }));
+  };
+
+  const selectColorCategory = (variantIndex, category) => {
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [variantIndex]: { ...prev[variantIndex], selectedCategory: category }
+    }));
+  };
+
+  // --- 7. MANEJADORES DE ESTADO Y EVENTOS ORIGINALES ---
 
   const handleProductChange = (e) => {
     console.log(`LOG: [ProductForm] Cambio en campo del producto: ${e.target.name} = ${e.target.value}`);
@@ -296,9 +540,21 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
   const addVariant = () => {
     console.log("LOG: [ProductForm] Añadiendo nueva variante...");
+    const newIndex = product.variants.length;
+    
     setProduct(prev => ({
       ...prev,
       variants: [...prev.variants, { ...INITIAL_VARIANT_STATE, newImageFiles: [], webpFiles: [] }]
+    }));
+    
+    // 🆕 NUEVO: Inicializar estado de color para la nueva variante
+    setColorDropdownStates(prev => ({
+      ...prev,
+      [newIndex]: {
+        showDropdown: false,
+        showSuggestions: false,
+        selectedCategory: 'basicos'
+      }
     }));
   };
 
@@ -326,8 +582,44 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     const updatedVariants = product.variants.filter((_, i) => i !== index);
     setProduct(prev => ({ ...prev, variants: updatedVariants }));
     
+    // 🆕 NUEVO: Limpiar estados de color
+    setColorDropdownStates(prev => {
+      const newStates = { ...prev };
+      delete newStates[index];
+      // Reindexar los estados restantes
+      const reindexedStates = {};
+      Object.keys(newStates).forEach(key => {
+        const keyNum = parseInt(key);
+        if (keyNum > index) {
+          reindexedStates[keyNum - 1] = newStates[key];
+        } else {
+          reindexedStates[key] = newStates[key];
+        }
+      });
+      return reindexedStates;
+    });
+    
+    setColorSuggestions(prev => {
+      const newSuggestions = { ...prev };
+      delete newSuggestions[index];
+      // Reindexar las sugerencias restantes
+      const reindexedSuggestions = {};
+      Object.keys(newSuggestions).forEach(key => {
+        const keyNum = parseInt(key);
+        if (keyNum > index) {
+          reindexedSuggestions[keyNum - 1] = newSuggestions[key];
+        } else {
+          reindexedSuggestions[key] = newSuggestions[key];
+        }
+      });
+      return reindexedSuggestions;
+    });
+    
     // Actualizar el array de referencias
     fileInputRefs.current = fileInputRefs.current.filter((_, i) => i !== index);
+    
+    // Limpiar referencia del dropdown de color
+    delete colorDropdownRefs.current[index];
     
     console.log(`LOG: [ProductForm] Variante ${index} removida exitosamente.`);
   };
@@ -338,7 +630,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     onFormSubmit(); // Esto notificará al padre para limpiar editingProduct
   };
 
-  // --- 7. ✅ NUEVA FUNCIÓN: DETECTAR Y ELIMINAR IMÁGENES HUÉRFANAS ---
+  // --- 8. ✅ NUEVA FUNCIÓN: DETECTAR Y ELIMINAR IMÁGENES HUÉRFANAS ---
   const cleanupOrphanedImages = async () => {
     if (!isEditMode || originalImageUrls.length === 0) {
       console.log("LOG: [ProductForm] No hay imágenes originales que limpiar.");
@@ -395,7 +687,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     }
   };
 
-  // --- 8. LÓGICA DE ENVÍO Y GUARDADO ---
+  // --- 9. LÓGICA DE ENVÍO Y GUARDADO ---
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -578,7 +870,142 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     }
   };
 
-  // --- 9. RENDERIZADO DEL FORMULARIO ---
+  // --- 10. 🆕 NUEVO: COMPONENTE DEL SELECTOR DE COLOR HÍBRIDO ---
+  const renderColorSelector = (variant, index) => {
+    const currentState = colorDropdownStates[index] || { 
+      showDropdown: false, 
+      showSuggestions: false, 
+      selectedCategory: 'basicos' 
+    };
+    const suggestions = colorSuggestions[index] || [];
+    const isValid = ColorUtils.isValidColor(variant.color);
+
+    return (
+      <div className="relative" ref={el => colorDropdownRefs.current[index] = el}>
+        {/* INPUT PRINCIPAL CON BOTÓN */}
+        <div className="flex">
+          <input
+            type="text"
+            value={variant.color}
+            onChange={(e) => handleColorInputChange(index, e.target.value)}
+            onFocus={() => {
+              initializeColorState(index);
+              if (suggestions.length > 0) {
+                setColorDropdownStates(prev => ({
+                  ...prev,
+                  [index]: { ...prev[index], showSuggestions: true }
+                }));
+              }
+            }}
+            placeholder="Escribe o selecciona un color..."
+            required
+            className={`flex-1 border p-2 rounded-l-lg focus:outline-none focus:ring-2 ${
+              variant.color 
+                ? (isValid 
+                    ? 'border-green-300 focus:ring-green-500' 
+                    : 'border-red-300 focus:ring-red-500')
+                : 'border-gray-300 focus:ring-blue-500'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => toggleColorDropdown(index)}
+            className="px-3 py-2 bg-blue-500 text-white rounded-r-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+          >
+            🎨 <FiChevronDown className="ml-1" />
+          </button>
+        </div>
+
+        {/* INDICADOR DE VALIDACIÓN */}
+        {variant.color && (
+          <div className="mt-1 text-sm flex items-center">
+            {isValid ? (
+              <span className="text-green-600 flex items-center">
+                ✅ Color válido
+                <div 
+                  className="ml-2 w-4 h-4 rounded border border-gray-300"
+                  style={{ backgroundColor: ColorUtils.getColorPreview(variant.color) }}
+                ></div>
+              </span>
+            ) : (
+              <span className="text-red-600">❌ Color no estándar</span>
+            )}
+          </div>
+        )}
+
+        {/* SUGERENCIAS DE AUTOCOMPLETADO */}
+        {currentState.showSuggestions && suggestions.length > 0 && (
+          <div className="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-lg mt-1 shadow-lg z-20">
+            <div className="p-2 text-sm text-gray-600 border-b">💡 Sugerencias:</div>
+            {suggestions.map((suggestion, i) => (
+              <div
+                key={i}
+                onClick={() => selectColorSuggestion(index, suggestion)}
+                className="px-3 py-2 hover:bg-blue-50 cursor-pointer flex items-center justify-between"
+              >
+                <span>{suggestion}</span>
+                <div 
+                  className="w-4 h-4 rounded border border-gray-300"
+                  style={{ backgroundColor: ColorUtils.getColorPreview(suggestion) }}
+                ></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* DROPDOWN VISUAL CON CATEGORÍAS */}
+        {currentState.showDropdown && (
+          <div className="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-lg mt-1 shadow-lg z-10">
+            {/* PESTAÑAS DE CATEGORÍAS */}
+            <div className="flex border-b border-gray-200 bg-gray-50 rounded-t-lg">
+              {Object.keys(colorCategories).map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => selectColorCategory(index, category)}
+                  className={`flex-1 px-2 py-2 text-xs font-medium transition-colors ${
+                    currentState.selectedCategory === category
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  {categoryLabels[category]}
+                </button>
+              ))}
+            </div>
+
+            {/* GRID DE COLORES */}
+            <div className="p-3 max-h-48 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-2">
+                {colorCategories[currentState.selectedCategory].map((color) => (
+                  <div
+                    key={color}
+                    onClick={() => selectColorFromDropdown(index, color)}
+                    className={`p-2 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex items-center space-x-2 ${
+                      variant.color === color ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                    }`}
+                  >
+                    <div 
+                      className="w-4 h-4 rounded border border-gray-300 flex-shrink-0"
+                      style={{ backgroundColor: ColorUtils.getColorPreview(color) }}
+                    ></div>
+                    <span className="text-sm font-medium">{color}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* PIE DEL DROPDOWN */}
+            <div className="px-3 py-2 bg-gray-50 border-t text-xs text-gray-600 rounded-b-lg">
+              {colorCategories[currentState.selectedCategory].length} colores disponibles
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // --- 11. RENDERIZADO DEL FORMULARIO ---
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-6">
       <Toaster position="top-right" />
@@ -636,6 +1063,17 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         />
       </fieldset>
 
+      {/* 🆕 NUEVO: Información sobre colores mejorados */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-medium text-blue-800 mb-2">🎨 Selector de Colores Mejorado</h3>
+        <div className="text-sm text-blue-700 space-y-1">
+          <div><strong>32 colores estándar:</strong> Negro, Blanco, Rojo, Azul, Verde, Dorado, Plateado, etc.</div>
+          <div><strong>Autocompletado:</strong> Escribe "ro" y verás sugerencias como "Rojo", "Rosa"</div>
+          <div><strong>Corrección automática:</strong> "red" → "Rojo", "blue" → "Azul", "black" → "Negro"</div>
+          <div><strong>Selector visual:</strong> Usa el botón 🎨 para navegar por categorías</div>
+        </div>
+      </div>
+
       {product.variants.map((variant, index) => (
         <fieldset key={index} className="p-4 border-2 border-dashed rounded-lg relative pt-6">
           <legend className="font-semibold text-gray-700 px-2">
@@ -650,56 +1088,69 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
               <FiX size={20} title="Eliminar esta variante" />
             </button>
           )}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-             <select 
-               name="color" 
-               value={variant.color} 
-               onChange={(e) => handleVariantChange(index, e)} 
-               className="border p-2 rounded bg-white" 
-               required
-             >
-                <option value="" disabled>— Color —</option>
-                {standardColors.map(color => (<option key={color} value={color}>{color}</option>))}
-             </select>
-             <input 
-               type="number" 
-               name="stock" 
-               value={variant.stock} 
-               onChange={(e) => handleVariantChange(index, e)} 
-               placeholder="Stock" 
-               required 
-               className="border p-2 rounded"
-             />
-             <input 
-               type="number" 
-               step="0.01" 
-               name="price" 
-               value={variant.price} 
-               onChange={(e) => handleVariantChange(index, e)} 
-               placeholder="Costo ($)" 
-               required 
-               className="border p-2 rounded"
-             />
-             <input 
-               type="number" 
-               step="0.01" 
-               name="price_menudeo" 
-               value={variant.price_menudeo} 
-               onChange={(e) => handleVariantChange(index, e)} 
-               placeholder="Precio Menudeo ($)" 
-               required 
-               className="border p-2 rounded"
-             />
-             <input 
-               type="number" 
-               step="0.01" 
-               name="price_mayoreo" 
-               value={variant.price_mayoreo} 
-               onChange={(e) => handleVariantChange(index, e)} 
-               placeholder="Precio Mayoreo ($)" 
-               required 
-               className="border p-2 rounded"
-             />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+             {/* LADO IZQUIERDO: Selector de Color */}
+             <div>
+               <label className="block text-sm font-medium text-gray-700 mb-1">
+                 Color <span className="text-red-500">*</span>
+               </label>
+               {renderColorSelector(variant, index)}
+             </div>
+             
+             {/* LADO DERECHO: Grid de 4 campos iguales */}
+             <div className="grid grid-cols-2 gap-4">
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
+                 <input 
+                   type="number" 
+                   name="stock" 
+                   value={variant.stock} 
+                   onChange={(e) => handleVariantChange(index, e)} 
+                   placeholder="Stock" 
+                   required 
+                   className="w-full border p-2 rounded"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Costo ($)</label>
+                 <input 
+                   type="number" 
+                   step="0.01" 
+                   name="price" 
+                   value={variant.price} 
+                   onChange={(e) => handleVariantChange(index, e)} 
+                   placeholder="Costo ($)" 
+                   required 
+                   className="w-full border p-2 rounded"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Menudeo ($)</label>
+                 <input 
+                   type="number" 
+                   step="0.01" 
+                   name="price_menudeo" 
+                   value={variant.price_menudeo} 
+                   onChange={(e) => handleVariantChange(index, e)} 
+                   placeholder="Precio Menudeo ($)" 
+                   required 
+                   className="w-full border p-2 rounded"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Mayoreo ($)</label>
+                 <input 
+                   type="number" 
+                   step="0.01" 
+                   name="price_mayoreo" 
+                   value={variant.price_mayoreo} 
+                   onChange={(e) => handleVariantChange(index, e)} 
+                   placeholder="Precio Mayoreo ($)" 
+                   required 
+                   className="w-full border p-2 rounded"
+                 />
+               </div>
+             </div>
           </div>
           
           <div className="mt-4">
@@ -803,7 +1254,18 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
         </button>
       </div>
       
-      <div className="flex justify-end border-t pt-6 mt-6">
+      <div className="flex justify-between items-end border-t pt-6 mt-6">
+        {/* Botón de resetear a la izquierda */}
+        <button 
+          type="button" 
+          onClick={resetForm}
+          className="bg-gray-500 text-white font-medium px-4 py-2 rounded-lg hover:bg-gray-600 transition flex items-center gap-2"
+        >
+          <FiX size={16} />
+          Limpiar Formulario
+        </button>
+        
+        {/* Botón de guardar a la derecha */}
         <button 
           type="submit" 
           disabled={loading} 

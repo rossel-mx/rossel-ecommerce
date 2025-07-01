@@ -1,9 +1,10 @@
 /**
- * @file ProductForm.jsx
+ * @file ProductForm.jsx - CON VALIDACIÓN SKU EN TIEMPO REAL
  * @description Formulario CRUD completo para la gestión de productos y sus variantes.
  * Maneja tanto creación como edición de productos existentes.
  * ✅ ACTUALIZADO: Ahora elimina imágenes huérfanas de Cloudinary durante edición.
  * 🆕 NUEVO: Selector de colores híbrido integrado con 32 colores estándar + autocompletado + corrección automática
+ * 🔥 NUEVO: Validación SKU en tiempo real con indicadores visuales y prevención de duplicados
  *
  * @requires react
  * @requires supabaseClient
@@ -11,10 +12,10 @@
  * @requires browser-image-compression
  * @requires react-icons
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../../services/supabaseClient";
 import toast, { Toaster } from "react-hot-toast";
-import { FiX, FiPlus, FiXCircle, FiChevronDown } from 'react-icons/fi';
+import { FiX, FiPlus, FiXCircle, FiChevronDown, FiCheck, FiAlertTriangle, FiLoader, FiEdit3 } from 'react-icons/fi';
 import imageCompression from 'browser-image-compression';
 
 // --- 1. CONFIGURACIÓN CENTRALIZADA CON COLORES EXPANDIDOS ---
@@ -125,6 +126,56 @@ const INITIAL_PRODUCT_STATE = {
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_API_KEY = import.meta.env.VITE_CLOUDINARY_API_KEY;
 
+// 🔥 NUEVA: Función para validar SKU en tiempo real
+const validateSKU = async (sku, currentProductId = null) => {
+  console.log(`LOG: [SKU Validation] Validando SKU: "${sku}", producto actual: ${currentProductId}`);
+  
+  // Validaciones básicas
+  if (!sku || !sku.trim()) {
+    return { isValid: false, status: 'empty', message: 'SKU requerido' };
+  }
+  
+  const trimmedSku = sku.trim();
+  
+  // Validar formato básico (opcional - puedes agregar regex aquí)
+  if (trimmedSku.length < 2) {
+    return { isValid: false, status: 'invalid', message: 'SKU debe tener al menos 2 caracteres' };
+  }
+  
+  try {
+    // Verificar en la base de datos
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, sku')
+      .eq('sku', trimmedSku)
+      .maybeSingle();
+    
+    if (error) {
+      console.error("ERROR: [SKU Validation] Error al consultar BD:", error);
+      return { isValid: false, status: 'error', message: 'Error al validar SKU' };
+    }
+    
+    // Si existe y no es el producto actual (para modo edición)
+    if (data && data.id !== currentProductId) {
+      console.log(`LOG: [SKU Validation] SKU duplicado encontrado:`, data);
+      return { 
+        isValid: false, 
+        status: 'duplicate',
+        message: `Ya existe en "${data.name}"`,
+        conflictProduct: data
+      };
+    }
+    
+    // SKU válido
+    console.log(`LOG: [SKU Validation] SKU "${trimmedSku}" disponible`);
+    return { isValid: true, status: 'available', message: 'Disponible' };
+    
+  } catch (error) {
+    console.error("ERROR: [SKU Validation] Error en validación:", error);
+    return { isValid: false, status: 'error', message: 'Error de conexión' };
+  }
+};
+
 const ProductForm = ({ onFormSubmit, editingProduct }) => {
   // --- 2. ESTADOS DEL COMPONENTE ---
   const [product, setProduct] = useState(INITIAL_PRODUCT_STATE);
@@ -137,6 +188,16 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   // 🆕 NUEVOS ESTADOS: Para el selector de colores híbrido
   const [colorDropdownStates, setColorDropdownStates] = useState({});
   const [colorSuggestions, setColorSuggestions] = useState({});
+  
+  // 🔥 NUEVOS ESTADOS: Para validación SKU en tiempo real
+  const [skuValidation, setSkuValidation] = useState({ 
+    isValid: false, 
+    status: 'empty', 
+    message: '', 
+    conflictProduct: null 
+  });
+  const [isValidatingSku, setIsValidatingSku] = useState(false);
+  const [skuValidationDebounce, setSkuValidationDebounce] = useState(null);
   
   const fileInputRefs = useRef([]);
   const colorDropdownRefs = useRef({});
@@ -168,6 +229,52 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // 🔥 NUEVO: Efecto para validación SKU con debounce
+  useEffect(() => {
+    // Limpiar timeout anterior
+    if (skuValidationDebounce) {
+      clearTimeout(skuValidationDebounce);
+    }
+    
+    // Si no hay SKU, resetear validación
+    if (!product.sku || !product.sku.trim()) {
+      setSkuValidation({ isValid: false, status: 'empty', message: 'SKU requerido', conflictProduct: null });
+      setIsValidatingSku(false);
+      return;
+    }
+    
+    // Configurar nuevo debounce
+    setIsValidatingSku(true);
+    const timeoutId = setTimeout(async () => {
+      console.log(`LOG: [ProductForm] Ejecutando validación SKU con debounce para: "${product.sku}"`);
+      
+      try {
+        const validation = await validateSKU(product.sku, isEditMode ? product.id : null);
+        setSkuValidation(validation);
+        console.log(`LOG: [ProductForm] Resultado validación SKU:`, validation);
+      } catch (error) {
+        console.error("ERROR: [ProductForm] Error en validación SKU:", error);
+        setSkuValidation({ 
+          isValid: false, 
+          status: 'error', 
+          message: 'Error al validar', 
+          conflictProduct: null 
+        });
+      } finally {
+        setIsValidatingSku(false);
+      }
+    }, 500); // Debounce de 500ms
+    
+    setSkuValidationDebounce(timeoutId);
+    
+    // Cleanup
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [product.sku, isEditMode, product.id]);
 
   // --- EFECTO PARA MANEJAR LA EDICIÓN ---
   useEffect(() => {
@@ -213,6 +320,9 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
       });
       setColorDropdownStates(colorStates);
       setColorSuggestions({});
+
+      // 🔥 NUEVO: Inicializar validación SKU para modo edición
+      setSkuValidation({ isValid: true, status: 'current', message: 'SKU actual', conflictProduct: null });
 
       console.log("LOG: [ProductForm] Modo edición configurado correctamente para:", editingProduct.name);
 
@@ -281,6 +391,14 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     // 🆕 NUEVO: Resetear estados de colores
     setColorDropdownStates({});
     setColorSuggestions({});
+    
+    // 🔥 NUEVO: Resetear validación SKU
+    setSkuValidation({ isValid: false, status: 'empty', message: '', conflictProduct: null });
+    setIsValidatingSku(false);
+    if (skuValidationDebounce) {
+      clearTimeout(skuValidationDebounce);
+      setSkuValidationDebounce(null);
+    }
     
     // Limpiar todos los inputs de archivo
     fileInputRefs.current.forEach(ref => {
@@ -687,10 +805,39 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     }
   };
 
-  // --- 9. LÓGICA DE ENVÍO Y GUARDADO ---
+  // --- 9. 🔥 NUEVO: FUNCIÓN PARA NAVEGAR AL PRODUCTO EN CONFLICTO ---
+  const handleNavigateToConflict = () => {
+    if (skuValidation.conflictProduct && onFormSubmit) {
+      console.log(`LOG: [ProductForm] Navegando al producto en conflicto:`, skuValidation.conflictProduct);
+      toast.info(`Cargando producto: ${skuValidation.conflictProduct.name}`);
+      
+      // Emitir evento para que el padre maneje la navegación
+      // Necesitarías pasar esta función desde ProductsTab
+      window.dispatchEvent(new CustomEvent('editProductBySku', { 
+        detail: { productId: skuValidation.conflictProduct.id } 
+      }));
+    }
+  };
+
+  // --- 10. LÓGICA DE ENVÍO Y GUARDADO ---
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // 🔥 NUEVA VALIDACIÓN: Verificar SKU antes de continuar
+    if (!skuValidation.isValid) {
+      console.error("ERROR: [ProductForm] Intento de guardar con SKU inválido:", skuValidation);
+      toast.error(`❌ No se puede guardar: ${skuValidation.message}`);
+      
+      // Hacer scroll al campo SKU si hay error
+      const skuInput = document.querySelector('input[name="sku"]');
+      if (skuInput) {
+        skuInput.focus();
+        skuInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+    
     setLoading(true);
     
     const actionText = isEditMode ? 'Actualizando' : 'Guardando';
@@ -863,14 +1010,114 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
     } catch (error) {
       toast.dismiss();
-      toast.error(error.message);
+      
+      // 🔥 MANEJO MEJORADO DE ERRORES DE SKU DUPLICADO
+      if (error.message.includes('duplicate key') || error.code === '23505' || error.message.includes('sku')) {
+        console.error("ERROR: [ProductForm] Error de SKU duplicado detectado:", error);
+        toast.error(`❌ El SKU "${product.sku}" ya está en uso. Por favor verifica y usa uno diferente.`);
+        
+        // Forzar re-validación del SKU
+        setSkuValidation({ 
+          isValid: false, 
+          status: 'duplicate', 
+          message: 'SKU duplicado detectado', 
+          conflictProduct: null 
+        });
+      } else {
+        toast.error(`❌ Error: ${error.message}`);
+      }
+      
       console.error("ERROR: [ProductForm] Error fatal al guardar/actualizar producto:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- 10. 🆕 NUEVO: COMPONENTE DEL SELECTOR DE COLOR HÍBRIDO ---
+  // --- 11. 🔥 NUEVO: COMPONENTE DEL INDICADOR DE VALIDACIÓN SKU ---
+  const renderSKUValidationIndicator = () => {
+    const getIndicatorContent = () => {
+      if (isValidatingSku) {
+        return {
+          icon: <FiLoader className="w-4 h-4 animate-spin" />,
+          text: 'Verificando...',
+          className: 'text-blue-600 bg-blue-50 border-blue-200'
+        };
+      }
+
+      switch (skuValidation.status) {
+        case 'empty':
+          return {
+            icon: <FiAlertTriangle className="w-4 h-4" />,
+            text: 'SKU requerido',
+            className: 'text-gray-500 bg-gray-50 border-gray-200'
+          };
+        
+        case 'invalid':
+          return {
+            icon: <FiAlertTriangle className="w-4 h-4" />,
+            text: skuValidation.message,
+            className: 'text-red-600 bg-red-50 border-red-200'
+          };
+        
+        case 'duplicate':
+          return {
+            icon: <FiAlertTriangle className="w-4 h-4" />,
+            text: skuValidation.message,
+            className: 'text-red-600 bg-red-50 border-red-200',
+            showConflictButton: true
+          };
+        
+        case 'available':
+          return {
+            icon: <FiCheck className="w-4 h-4" />,
+            text: '✅ SKU disponible',
+            className: 'text-green-600 bg-green-50 border-green-200'
+          };
+        
+        case 'current':
+          return {
+            icon: <FiCheck className="w-4 h-4" />,
+            text: '✅ SKU actual (sin cambios)',
+            className: 'text-blue-600 bg-blue-50 border-blue-200'
+          };
+        
+        case 'error':
+          return {
+            icon: <FiAlertTriangle className="w-4 h-4" />,
+            text: 'Error al validar',
+            className: 'text-red-600 bg-red-50 border-red-200'
+          };
+        
+        default:
+          return null;
+      }
+    };
+
+    const indicator = getIndicatorContent();
+    if (!indicator) return null;
+
+    return (
+      <div className={`mt-2 flex items-center justify-between px-3 py-2 rounded-lg border text-sm font-medium ${indicator.className}`}>
+        <div className="flex items-center gap-2">
+          {indicator.icon}
+          <span>{indicator.text}</span>
+        </div>
+        
+        {indicator.showConflictButton && skuValidation.conflictProduct && (
+          <button
+            type="button"
+            onClick={handleNavigateToConflict}
+            className="ml-2 px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs rounded-md border border-red-300 transition-colors flex items-center gap-1"
+          >
+            <FiEdit3 className="w-3 h-3" />
+            Ver "{skuValidation.conflictProduct.name}"
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // --- 12. 🆕 NUEVO: COMPONENTE DEL SELECTOR DE COLOR HÍBRIDO ---
   const renderColorSelector = (variant, index) => {
     const currentState = colorDropdownStates[index] || { 
       showDropdown: false, 
@@ -1005,7 +1252,7 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
     );
   };
 
-  // --- 11. RENDERIZADO DEL FORMULARIO ---
+  // --- 13. RENDERIZADO DEL FORMULARIO ---
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-6">
       <Toaster position="top-right" />
@@ -1028,31 +1275,61 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
 
       <fieldset className="p-4 border rounded-lg">
         <legend className="text-lg font-bold text-primary px-2">Datos del Producto Base</legend>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <input 
-            name="sku" 
-            value={product.sku} 
-            onChange={handleProductChange} 
-            placeholder="SKU del Modelo (ej. 849)" 
-            required 
-            className="border p-2 rounded" 
-          />
-          <input 
-            name="name" 
-            value={product.name} 
-            onChange={handleProductChange} 
-            placeholder="Nombre del Modelo (ej. Bolsa Horizon)" 
-            required 
-            className="border p-2 rounded" 
-          />
-          <input 
-            name="category" 
-            value={product.category} 
-            onChange={handleProductChange} 
-            placeholder="Categoría (ej. Bolsas)" 
-            required 
-            className="border p-2 rounded" 
-          />
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {/* 🔥 CAMPO SKU CON VALIDACIÓN EN TIEMPO REAL - 2 columnas */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              SKU del Modelo <span className="text-red-500">*</span>
+            </label>
+            <input 
+              name="sku" 
+              value={product.sku} 
+              onChange={handleProductChange} 
+              placeholder="Ej: 849, BOL-2024-001" 
+              required 
+              className={`w-full border-2 p-3 rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+                skuValidation.isValid 
+                  ? 'border-green-300 focus:ring-green-500 focus:border-green-500' 
+                  : skuValidation.status === 'duplicate'
+                    ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                    : skuValidation.status === 'empty'
+                      ? 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                      : 'border-red-300 focus:ring-red-500 focus:border-red-500'
+              }`}
+            />
+            {/* Indicador de validación SKU */}
+            {renderSKUValidationIndicator()}
+          </div>
+          
+          {/* Nombre del Modelo - 2 columnas */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre del Modelo <span className="text-red-500">*</span>
+            </label>
+            <input 
+              name="name" 
+              value={product.name} 
+              onChange={handleProductChange} 
+              placeholder="Ej. Bolsa Horizon" 
+              required 
+              className="w-full border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" 
+            />
+          </div>
+          
+          {/* Categoría - 1 columna */}
+          <div className="md:col-span-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Categoría <span className="text-red-500">*</span>
+            </label>
+            <input 
+              name="category" 
+              value={product.category} 
+              onChange={handleProductChange} 
+              placeholder="Bolsa" 
+              required 
+              className="w-full border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" 
+            />
+          </div>
         </div>
         <textarea 
           name="description" 
@@ -1071,6 +1348,17 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
           <div><strong>Autocompletado:</strong> Escribe "ro" y verás sugerencias como "Rojo", "Rosa"</div>
           <div><strong>Corrección automática:</strong> "red" → "Rojo", "blue" → "Azul", "black" → "Negro"</div>
           <div><strong>Selector visual:</strong> Usa el botón 🎨 para navegar por categorías</div>
+        </div>
+      </div>
+
+      {/* 🔥 NUEVA: Información sobre validación SKU */}
+      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <h3 className="font-medium text-green-800 mb-2">🛡️ Validación SKU en Tiempo Real</h3>
+        <div className="text-sm text-green-700 space-y-1">
+          <div><strong>Detección instantánea:</strong> Verifica duplicados mientras escribes</div>
+          <div><strong>Prevención de errores:</strong> No podrás guardar con SKU duplicado</div>
+          <div><strong>Navegación rápida:</strong> Ve directamente al producto que usa un SKU</div>
+          <div><strong>Feedback visual:</strong> Indicadores claros de disponibilidad</div>
         </div>
       </div>
 
@@ -1265,13 +1553,37 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
           Limpiar Formulario
         </button>
         
-        {/* Botón de guardar a la derecha */}
+        {/* Botón de guardar a la derecha - 🔥 CON VALIDACIÓN SKU */}
         <button 
           type="submit" 
-          disabled={loading} 
-          className="bg-primary text-white font-bold px-6 py-3 rounded-lg hover:bg-red-700 transition disabled:bg-gray-400"
+          disabled={loading || !skuValidation.isValid || isValidatingSku} 
+          className={`font-bold px-6 py-3 rounded-lg transition flex items-center gap-2 ${
+            loading || !skuValidation.isValid || isValidatingSku
+              ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
+              : 'bg-primary text-white hover:bg-red-700'
+          }`}
         >
-          {loading ? (isEditMode ? 'Actualizando...' : 'Guardando...') : (isEditMode ? 'Actualizar Producto' : 'Guardar Producto y Variantes')}
+          {loading ? (
+            <>
+              <FiLoader className="w-4 h-4 animate-spin" />
+              {isEditMode ? 'Actualizando...' : 'Guardando...'}
+            </>
+          ) : isValidatingSku ? (
+            <>
+              <FiLoader className="w-4 h-4 animate-spin" />
+              Verificando SKU...
+            </>
+          ) : !skuValidation.isValid ? (
+            <>
+              <FiAlertTriangle className="w-4 h-4" />
+              SKU Inválido
+            </>
+          ) : (
+            <>
+              <FiCheck className="w-4 h-4" />
+              {isEditMode ? 'Actualizar Producto' : 'Guardar Producto y Variantes'}
+            </>
+          )}
         </button>
       </div>
     </form>

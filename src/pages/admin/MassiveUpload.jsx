@@ -1,5 +1,5 @@
 /**
- * @file MassiveUpload.jsx
+ * @file MassiveUpload.jsx - CON PROTECCIÓN SKU AVANZADA
  * @description Componente para carga masiva de productos e imágenes mediante Excel + ZIP.
  * 
  * FLUJO COMPLETO:
@@ -7,11 +7,16 @@
  * 2. Usuario llena Excel con productos/variantes (Excel inteligente)
  * 3. Usuario procesa imágenes con Python (renombrado automático)
  * 4. Usuario sube Excel + ZIP con imágenes procesadas
- * 5. Sistema hace match automático y sube todo sin transformaciones
+ * 5. 🔥 NUEVA: Pre-validación completa de SKUs (duplicados internos + BD)
+ * 6. 🔥 NUEVA: Modal de resolución de conflictos si hay duplicados
+ * 7. Sistema hace match automático y sube todo sin transformaciones
  * 
  * CARACTERÍSTICAS:
  * - ✅ Template Excel inteligente con cache de datos
  * - ✅ Validación completa de datos y nomenclatura
+ * - 🔥 NUEVA: Protección total contra SKU duplicados
+ * - 🔥 NUEVA: Modal elegante de resolución de conflictos
+ * - 🔥 NUEVA: Opciones inteligentes de resolución automática
  * - ✅ Preview de productos/variantes antes de subir
  * - ✅ Carga directa a Cloudinary (0 tokens)
  * - ✅ Inserción batch a Supabase
@@ -38,7 +43,13 @@ import {
   FiAlertCircle,
   FiPlay,
   FiLoader,
-  FiInfo
+  FiInfo,
+  FiAlertTriangle,
+  FiX,
+  FiEdit3,
+  FiTrash2,
+  FiRefreshCw,
+  FiSkipForward
 } from 'react-icons/fi';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
@@ -59,12 +70,315 @@ const EXCEL_HEADERS = [
 ];
 
 const TEMPLATE_DATA = [
-  ['849', 'Bolsa Luna', 'Bolsa elegante de cuero sintético', 'Bolsas', 'Rojo', '10', '450', '650', '550', '849_rojo_1.webp,849_rojo_2.webp'],
+  ['849', 'Bolsa Luna', 'Bolsa elegante de cuero sintético', 'Bolsa', 'Rojo', '10', '450', '650', '550', '849_rojo_1.webp,849_rojo_2.webp'],
   ['', '', '', '', 'Negro', '15', '450', '650', '550', '849_negro_1.webp,849_negro_2.webp'],
   ['', '', '', '', 'Azul', '8', '450', '650', '550', '849_azul_1.webp'],
-  ['850', 'Mochila Star', 'Mochila escolar resistente', 'Mochilas', 'Verde', '20', '380', '580', '480', '850_verde_1.webp,850_verde_2.webp'],
+  ['850', 'Mochila Star', 'Mochila escolar resistente', 'Mochila', 'Verde', '20', '380', '580', '480', '850_verde_1.webp,850_verde_2.webp'],
   ['', '', '', '', 'Negro', '12', '380', '580', '480', '850_negro_1.webp']
 ];
+
+// 🔥 NUEVAS: Funciones utilitarias para validación SKU
+const validateSKUList = async (skuList) => {
+  console.log(`LOG: [MassiveUpload] Validando ${skuList.length} SKUs contra la base de datos...`);
+  
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('sku, name, id')
+      .in('sku', skuList);
+    
+    if (error) throw error;
+    
+    console.log(`LOG: [MassiveUpload] Encontrados ${data.length} SKUs existentes en BD`);
+    return data || [];
+    
+  } catch (error) {
+    console.error('ERROR: [MassiveUpload] Error al validar SKUs:', error);
+    throw new Error(`Error al validar SKUs: ${error.message}`);
+  }
+};
+
+const detectDuplicateSKUs = (products) => {
+  console.log('LOG: [MassiveUpload] Detectando SKUs duplicados internamente...');
+  
+  const skuCount = {};
+  const duplicates = [];
+  
+  products.forEach((product, index) => {
+    const sku = product.sku;
+    if (skuCount[sku]) {
+      duplicates.push({
+        sku,
+        rows: [skuCount[sku].index, index],
+        names: [skuCount[sku].name, product.name]
+      });
+    } else {
+      skuCount[sku] = { index, name: product.name };
+    }
+  });
+  
+  console.log(`LOG: [MassiveUpload] Encontrados ${duplicates.length} SKUs duplicados internamente`);
+  return duplicates;
+};
+// 🔥 NUEVO: Modal de Resolución de Conflictos
+const ConflictResolutionModal = ({ 
+  isOpen, 
+  onClose, 
+  conflicts, 
+  onResolve,
+  isResolving 
+}) => {
+  const [resolutions, setResolutions] = useState({});
+  const [newSKUs, setNewSKUs] = useState({});
+
+  if (!isOpen) return null;
+
+  const handleResolutionChange = (conflictId, resolution) => {
+    setResolutions(prev => ({
+      ...prev,
+      [conflictId]: resolution
+    }));
+  };
+
+  const handleSKUChange = (conflictId, newSKU) => {
+    setNewSKUs(prev => ({
+      ...prev,
+      [conflictId]: newSKU
+    }));
+  };
+
+  const canResolve = () => {
+    return conflicts.dbConflicts.every(conflict => 
+      resolutions[conflict.sku] && 
+      (resolutions[conflict.sku] !== 'edit' || newSKUs[conflict.sku]?.trim())
+    );
+  };
+
+  const handleResolve = () => {
+    if (!canResolve()) {
+      toast.error('Por favor resuelve todos los conflictos antes de continuar');
+      return;
+    }
+    
+    onResolve({ resolutions, newSKUs });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        
+        {/* Header */}
+        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-white/20 rounded-xl">
+                <FiAlertTriangle className="w-8 h-8" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold">Conflictos de SKU Detectados</h2>
+                <p className="text-red-100">Se encontraron problemas que requieren tu atención</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              disabled={isResolving}
+              className="p-2 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <FiX className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+          
+          {/* Duplicados internos */}
+          {conflicts.internalDuplicates.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <FiFileText className="w-5 h-5 text-orange-500" />
+                Duplicados dentro del archivo ({conflicts.internalDuplicates.length})
+              </h3>
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
+                <p className="text-orange-800 text-sm mb-3">
+                  <strong>⚠️ Problema:</strong> Los siguientes SKUs aparecen múltiples veces en tu archivo Excel.
+                </p>
+                <p className="text-orange-700 text-sm">
+                  <strong>💡 Solución:</strong> Edita tu archivo Excel y elimina las filas duplicadas, luego vuelve a subirlo.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                {conflicts.internalDuplicates.map((dup, index) => (
+                  <div key={index} className="bg-white border border-orange-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-semibold text-gray-800">SKU: {dup.sku}</h4>
+                        <p className="text-sm text-gray-600">
+                          Aparece en filas: {dup.rows.map(r => r + 2).join(', ')}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Nombres: {dup.names.join(' / ')}
+                        </p>
+                      </div>
+                      <div className="text-orange-600">
+                        <FiAlertCircle className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Conflictos con BD */}
+          {conflicts.dbConflicts.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <FiAlertTriangle className="w-5 h-5 text-red-500" />
+                SKUs ya existentes en la base de datos ({conflicts.dbConflicts.length})
+              </h3>
+              
+              <div className="space-y-4">
+                {conflicts.dbConflicts.map((conflict, index) => (
+                  <div key={conflict.sku} className="bg-white border border-red-200 rounded-xl p-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      
+                      {/* Información del conflicto */}
+                      <div>
+                        <h4 className="font-bold text-lg text-gray-800 mb-3">SKU: {conflict.sku}</h4>
+                        <div className="space-y-2 text-sm">
+                          <div className="bg-red-50 p-3 rounded-lg">
+                            <p className="font-medium text-red-800">📂 En la base de datos:</p>
+                            <p className="text-red-700">"{conflict.existingName}"</p>
+                          </div>
+                          <div className="bg-blue-50 p-3 rounded-lg">
+                            <p className="font-medium text-blue-800">📄 En tu archivo:</p>
+                            <p className="text-blue-700">"{conflict.fileName}" (fila {conflict.fileRow + 2})</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Opciones de resolución */}
+                      <div>
+                        <h5 className="font-semibold text-gray-700 mb-3">¿Cómo resolver?</h5>
+                        <div className="space-y-3">
+                          
+                          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`resolution-${conflict.sku}`}
+                              value="skip"
+                              onChange={() => handleResolutionChange(conflict.sku, 'skip')}
+                              className="mt-1"
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <FiSkipForward className="w-4 h-4 text-gray-500" />
+                                <span className="font-medium text-gray-800">Omitir</span>
+                              </div>
+                              <p className="text-sm text-gray-600">No subir este producto del archivo</p>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`resolution-${conflict.sku}`}
+                              value="replace"
+                              onChange={() => handleResolutionChange(conflict.sku, 'replace')}
+                              className="mt-1"
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <FiRefreshCw className="w-4 h-4 text-orange-500" />
+                                <span className="font-medium text-gray-800">Reemplazar</span>
+                              </div>
+                              <p className="text-sm text-gray-600">Actualizar el producto existente con los nuevos datos</p>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`resolution-${conflict.sku}`}
+                              value="edit"
+                              onChange={() => handleResolutionChange(conflict.sku, 'edit')}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <FiEdit3 className="w-4 h-4 text-blue-500" />
+                                <span className="font-medium text-gray-800">Cambiar SKU</span>
+                              </div>
+                              <p className="text-sm text-gray-600 mb-2">Asignar un nuevo SKU a este producto</p>
+                              {resolutions[conflict.sku] === 'edit' && (
+                                <input
+                                  type="text"
+                                  placeholder={`Nuevo SKU (ej: ${conflict.sku}-2)`}
+                                  value={newSKUs[conflict.sku] || ''}
+                                  onChange={(e) => handleSKUChange(conflict.sku, e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                              )}
+                            </div>
+                          </label>
+
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="bg-gray-50 px-6 py-4 border-t">
+          <div className="flex justify-between items-center">
+            <div className="text-sm text-gray-600">
+              {conflicts.internalDuplicates.length > 0 
+                ? "⚠️ Primero debes corregir tu archivo Excel para continuar"
+                : canResolve() 
+                  ? "✅ Todos los conflictos han sido resueltos"
+                  : "🔧 Selecciona una opción para cada conflicto"
+              }
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                disabled={isResolving}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              
+              <button
+                onClick={handleResolve}
+                disabled={conflicts.internalDuplicates.length > 0 || !canResolve() || isResolving}
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isResolving ? (
+                  <>
+                    <FiLoader className="w-4 h-4 animate-spin" />
+                    Aplicando...
+                  </>
+                ) : (
+                  <>
+                    <FiCheckCircle className="w-4 h-4" />
+                    Continuar con Resoluciones
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const MassiveUpload = ({ onUploadSuccess }) => {
   // --- 2. ESTADOS DEL COMPONENTE ---
@@ -77,6 +391,12 @@ const MassiveUpload = ({ onUploadSuccess }) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedResults, setProcessedResults] = useState(null);
+
+  // 🔥 NUEVOS ESTADOS: Para validación y conflictos SKU
+  const [isValidatingSKU, setIsValidatingSKU] = useState(false);
+  const [skuConflicts, setSkuConflicts] = useState({ internalDuplicates: [], dbConflicts: [] });
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
 
   // Referencias para inputs de archivos
   const excelInputRef = useRef(null);
@@ -240,7 +560,118 @@ const MassiveUpload = ({ onUploadSuccess }) => {
     }
   };
 
-  // --- 5. MANEJADORES DE ARCHIVOS ---
+  // --- 5. 🔥 NUEVA: VALIDACIÓN COMPLETA SKU ---
+  const performSKUValidation = async (products) => {
+    console.log('LOG: [MassiveUpload] Iniciando validación completa de SKUs...');
+    setIsValidatingSKU(true);
+    
+    try {
+      // 1. Detectar duplicados internos
+      const internalDuplicates = detectDuplicateSKUs(products);
+      
+      // 2. Validar contra base de datos
+      const skuList = products.map(p => p.sku);
+      const existingProducts = await validateSKUList(skuList);
+      
+      // 3. Crear lista de conflictos con BD
+      const dbConflicts = existingProducts.map(existing => {
+        const fileProduct = products.find(p => p.sku === existing.sku);
+        const fileIndex = products.indexOf(fileProduct);
+        return {
+          sku: existing.sku,
+          existingName: existing.name,
+          existingId: existing.id,
+          fileName: fileProduct.name,
+          fileRow: fileIndex
+        };
+      });
+      
+      const conflicts = { internalDuplicates, dbConflicts };
+      setSkuConflicts(conflicts);
+      
+      console.log('LOG: [MassiveUpload] Validación SKU completada:', {
+        internalDuplicates: internalDuplicates.length,
+        dbConflicts: dbConflicts.length
+      });
+      
+      // 4. Mostrar modal si hay conflictos
+      if (internalDuplicates.length > 0 || dbConflicts.length > 0) {
+        setShowConflictModal(true);
+        toast.error(`Se encontraron ${internalDuplicates.length + dbConflicts.length} conflictos de SKU`);
+        return false; // No continuar
+      } else {
+        toast.success('✅ Validación SKU completada - No hay conflictos');
+        return true; // Puede continuar
+      }
+      
+    } catch (error) {
+      
+	  console.error('ERROR: [MassiveUpload] Error en validación SKU:', error);
+      toast.error(`Error al validar SKUs: ${error.message}`);
+      return false;
+    } finally {
+      setIsValidatingSKU(false);
+    }
+  };
+
+  // --- 6. 🔥 NUEVA: RESOLVER CONFLICTOS ---
+  const handleConflictResolution = async ({ resolutions, newSKUs }) => {
+    console.log('LOG: [MassiveUpload] Aplicando resoluciones de conflictos...', { resolutions, newSKUs });
+    setIsResolvingConflicts(true);
+    
+    try {
+      // Aplicar resoluciones al parsedData
+      const updatedProducts = parsedData.filter(product => {
+        const resolution = resolutions[product.sku];
+        
+        if (resolution === 'skip') {
+          console.log(`LOG: [MassiveUpload] Omitiendo producto: ${product.sku}`);
+          return false; // Eliminar del procesamiento
+        }
+        
+        if (resolution === 'edit') {
+          const newSKU = newSKUs[product.sku];
+          if (newSKU && newSKU.trim()) {
+            console.log(`LOG: [MassiveUpload] Cambiando SKU: ${product.sku} → ${newSKU}`);
+            product.sku = newSKU.trim();
+            // También actualizar las referencias de imágenes
+            product.variants.forEach(variant => {
+              variant.imageNames = variant.imageNames.map(imageName => {
+                const parts = imageName.split('_');
+                if (parts.length >= 3) {
+                  parts[0] = newSKU.trim();
+                  return parts.join('_');
+                }
+                return imageName;
+              });
+            });
+          }
+        }
+        
+        // Para 'replace' mantenemos el producto tal como está
+        return true; // Mantener en el procesamiento
+      });
+      
+      // Actualizar parsedData
+      setParsedData(updatedProducts);
+      
+      // Re-validar para asegurar que no hay nuevos conflictos
+      const canContinue = await performSKUValidation(updatedProducts);
+      
+      if (canContinue) {
+        setShowConflictModal(false);
+        toast.success('✅ Conflictos resueltos exitosamente');
+      }
+      
+    } catch (error) {
+      console.error('ERROR: [MassiveUpload] Error al resolver conflictos:', error);
+      toast.error(`Error al resolver conflictos: ${error.message}`);
+    } finally {
+      setIsResolvingConflicts(false);
+    }
+  };
+
+  // --- 7. MANEJADORES DE ARCHIVOS ---
   const handleExcelUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -259,19 +690,25 @@ const MassiveUpload = ({ onUploadSuccess }) => {
       
       const { products, errors } = processIntelligentExcel(jsonData);
       
-      setParsedData(products);
       setValidationErrors(errors);
       
-      if (errors.length === 0) {
-        toast.success(`Excel procesado: ${products.length} productos válidos`);
-      } else {
+      if (errors.length === 0 && products.length > 0) {
+        // 🔥 NUEVA: Realizar validación SKU automáticamente
+        setParsedData(products);
+        toast.success(`Excel procesado: ${products.length} productos encontrados`);
+      } else if (errors.length > 0) {
+        setParsedData(null);
         toast.error(`Excel procesado con ${errors.length} errores - revisar detalles`);
+      } else {
+        setParsedData(null);
+        toast.error('No se encontraron productos válidos en el Excel');
       }
       
     } catch (error) {
       console.error('ERROR: [MassiveUpload] Error al procesar Excel:', error);
       toast.error('Error al procesar el archivo Excel');
       setValidationErrors([`Error al leer archivo: ${error.message}`]);
+      setParsedData(null);
     }
   };
 
@@ -310,7 +747,7 @@ const MassiveUpload = ({ onUploadSuccess }) => {
     }
   };
 
-  // --- 6. VALIDADOR CRUZADO ---
+  // --- 8. VALIDADOR CRUZADO ---
   const validateCrossReferences = () => {
     if (!parsedData || !imageFiles) return [];
     
@@ -348,7 +785,50 @@ const MassiveUpload = ({ onUploadSuccess }) => {
     return errors;
   };
 
-  // --- 7. PROCESADOR PRINCIPAL ---
+  // --- 9. 🔥 ACTUALIZADO: PREPARAR PARA PREVIEW CON VALIDACIÓN SKU ---
+  const prepareForPreview = async () => {
+    if (!parsedData || validationErrors.length > 0) {
+      toast.error('Corrija los errores de Excel antes de continuar');
+      return;
+    }
+    
+    // Realizar validación SKU antes de continuar al preview
+    const skuValidationPassed = await performSKUValidation(parsedData);
+    
+    if (skuValidationPassed) {
+      setStep(3); // Ir a preview solo si no hay conflictos SKU
+    }
+    // Si hay conflictos, el modal se muestra automáticamente
+  };
+
+  // --- 10. FUNCIONES DE NAVEGACIÓN ---
+  const resetUpload = () => {
+    console.log('LOG: [MassiveUpload] Reseteando componente...');
+    
+    setStep(1);
+    setExcelFile(null);
+    setZipFile(null);
+    setParsedData(null);
+    setImageFiles({});
+    setValidationErrors([]);
+    setUploadProgress(0);
+    setProcessedResults(null);
+    
+    // 🔥 NUEVOS: Resetear estados SKU
+    setIsValidatingSKU(false);
+    setSkuConflicts({ internalDuplicates: [], dbConflicts: [] });
+    setShowConflictModal(false);
+    setIsResolvingConflicts(false);
+    
+    // Limpiar inputs
+    if (excelInputRef.current) excelInputRef.current.value = '';
+    if (zipInputRef.current) zipInputRef.current.value = '';
+  };
+
+  const canProceedToPreview = () => {
+    return excelFile && zipFile && parsedData && validationErrors.length === 0;
+  };
+  // --- 11. PROCESADOR PRINCIPAL ---
   const processUpload = async () => {
     if (!parsedData || !imageFiles || validationErrors.length > 0) {
       toast.error('Corrija los errores antes de continuar');
@@ -429,47 +909,109 @@ const MassiveUpload = ({ onUploadSuccess }) => {
       const results = {
         productsCreated: 0,
         variantsCreated: 0,
+        productsUpdated: 0,
         errors: []
       };
       
       for (const [index, product] of parsedData.entries()) {
         try {
-          // Insertar producto base
-          const { data: productData, error: productError } = await supabase
-            .from('products')
-            .insert({
-              sku: product.sku,
-              name: product.name,
-              description: product.description,
-              category: product.category
-            })
-            .select()
-            .single();
+          // 🔥 NUEVA: Verificar si necesitamos reemplazar producto existente
+          const shouldReplace = skuConflicts.dbConflicts.some(conflict => 
+            conflict.sku === product.sku
+          );
           
-          if (productError) throw productError;
-          
-          results.productsCreated++;
-          console.log(`LOG: [MassiveUpload] Producto creado: ${product.sku} (ID: ${productData.id})`);
-          
-          // Insertar variantes
-          const variantInserts = product.variants.map(variant => ({
-            product_id: productData.id,
-            color: variant.color,
-            stock: variant.stock,
-            price: variant.precio,
-            price_menudeo: variant.precio_menudeo,
-            price_mayoreo: variant.precio_mayoreo,
-            image_urls: variant.imageNames.map(imageName => imageUrls[imageName]).filter(url => url)
-          }));
-          
-          const { error: variantsError } = await supabase
-            .from('product_variants')
-            .insert(variantInserts);
-          
-          if (variantsError) throw variantsError;
-          
-          results.variantsCreated += variantInserts.length;
-          console.log(`LOG: [MassiveUpload] ${variantInserts.length} variantes creadas para producto ${product.sku}`);
+          if (shouldReplace) {
+            // Actualizar producto existente
+            console.log(`LOG: [MassiveUpload] Actualizando producto existente: ${product.sku}`);
+            
+            // Obtener ID del producto existente
+            const { data: existingProduct, error: findError } = await supabase
+              .from('products')
+              .select('id')
+              .eq('sku', product.sku)
+              .single();
+            
+            if (findError) throw findError;
+            
+            // Actualizar datos base del producto
+            const { error: updateError } = await supabase
+              .from('products')
+              .update({
+                name: product.name,
+                description: product.description,
+                category: product.category
+              })
+              .eq('id', existingProduct.id);
+            
+            if (updateError) throw updateError;
+            
+            // Eliminar variantes existentes
+            const { error: deleteVariantsError } = await supabase
+              .from('product_variants')
+              .delete()
+              .eq('product_id', existingProduct.id);
+            
+            if (deleteVariantsError) throw deleteVariantsError;
+            
+            // Insertar nuevas variantes
+            const variantInserts = product.variants.map(variant => ({
+              product_id: existingProduct.id,
+              color: variant.color,
+              stock: variant.stock,
+              price: variant.precio,
+              price_menudeo: variant.precio_menudeo,
+              price_mayoreo: variant.precio_mayoreo,
+              image_urls: variant.imageNames.map(imageName => imageUrls[imageName]).filter(url => url)
+            }));
+            
+            const { error: variantsError } = await supabase
+              .from('product_variants')
+              .insert(variantInserts);
+            
+            if (variantsError) throw variantsError;
+            
+            results.productsUpdated++;
+            results.variantsCreated += variantInserts.length;
+            console.log(`LOG: [MassiveUpload] Producto ${product.sku} actualizado con ${variantInserts.length} variantes`);
+            
+          } else {
+            // Crear nuevo producto
+            const { data: productData, error: productError } = await supabase
+              .from('products')
+              .insert({
+                sku: product.sku,
+                name: product.name,
+                description: product.description,
+                category: product.category
+              })
+              .select()
+              .single();
+            
+            if (productError) throw productError;
+            
+            results.productsCreated++;
+            console.log(`LOG: [MassiveUpload] Producto creado: ${product.sku} (ID: ${productData.id})`);
+            
+            // Insertar variantes
+            const variantInserts = product.variants.map(variant => ({
+              product_id: productData.id,
+              color: variant.color,
+              stock: variant.stock,
+              price: variant.precio,
+              price_menudeo: variant.precio_menudeo,
+              price_mayoreo: variant.precio_mayoreo,
+              image_urls: variant.imageNames.map(imageName => imageUrls[imageName]).filter(url => url)
+            }));
+            
+            const { error: variantsError } = await supabase
+              .from('product_variants')
+              .insert(variantInserts);
+            
+            if (variantsError) throw variantsError;
+            
+            results.variantsCreated += variantInserts.length;
+            console.log(`LOG: [MassiveUpload] ${variantInserts.length} variantes creadas para producto ${product.sku}`);
+          }
           
         } catch (error) {
           console.error(`ERROR: [MassiveUpload] Error procesando producto ${product.sku}:`, error);
@@ -484,7 +1026,7 @@ const MassiveUpload = ({ onUploadSuccess }) => {
       setProcessedResults(results);
       
       if (results.errors.length === 0) {
-        toast.success(`¡Carga masiva completada! ${results.productsCreated} productos y ${results.variantsCreated} variantes creadas`);
+        toast.success(`¡Carga masiva completada! ${results.productsCreated} productos creados, ${results.productsUpdated} actualizados, ${results.variantsCreated} variantes procesadas`);
       } else {
         toast.error(`Carga completada con ${results.errors.length} errores`);
       }
@@ -499,30 +1041,7 @@ const MassiveUpload = ({ onUploadSuccess }) => {
       setIsProcessing(false);
     }
   };
-
-  // --- 8. FUNCIONES DE NAVEGACIÓN ---
-  const resetUpload = () => {
-    console.log('LOG: [MassiveUpload] Reseteando componente...');
-    
-    setStep(1);
-    setExcelFile(null);
-    setZipFile(null);
-    setParsedData(null);
-    setImageFiles({});
-    setValidationErrors([]);
-    setUploadProgress(0);
-    setProcessedResults(null);
-    
-    // Limpiar inputs
-    if (excelInputRef.current) excelInputRef.current.value = '';
-    if (zipInputRef.current) zipInputRef.current.value = '';
-  };
-
-  const canProceedToPreview = () => {
-    return excelFile && zipFile && parsedData && validationErrors.length === 0;
-  };
-
-  // --- 9. RENDERIZADO ---
+  // --- 12. RENDERIZADO ---
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <Toaster position="top-right" />
@@ -533,6 +1052,11 @@ const MassiveUpload = ({ onUploadSuccess }) => {
         <p className="text-gray-600">
           Sistema inteligente para cargar múltiples productos con sus variantes e imágenes
         </p>
+        {/* 🔥 NUEVO: Indicador de protección SKU */}
+        <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-full text-green-800 text-sm font-medium">
+          <FiCheckCircle className="w-4 h-4" />
+          🛡️ Protección SKU activada - Detección automática de duplicados
+        </div>
       </div>
 
       {/* Progress Steps */}
@@ -551,7 +1075,7 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             }`}>
               {step > num ? (
                 <FiCheckCircle className="w-5 h-5" />
-              ) : step === num && isProcessing ? (
+              ) : step === num && (isProcessing || isValidatingSKU) ? (
                 <FiLoader className="w-5 h-5 animate-spin" />
               ) : (
                 <Icon className="w-5 h-5" />
@@ -633,7 +1157,33 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             </div>
           </div>
 
-          {/* Ejemplo visual */}
+          {/* 🔥 NUEVA: Sección de protección SKU */}
+          <div className="mt-8 bg-green-50 p-6 rounded-lg border border-green-200">
+            <h3 className="font-bold text-green-800 mb-4 flex items-center gap-2">
+              🛡️ Protección Automática contra SKU Duplicados
+            </h3>
+            <div className="grid md:grid-cols-2 gap-6 text-sm">
+              <div>
+                <h4 className="font-medium text-green-800 mb-2">🔍 Detección Automática:</h4>
+                <ul className="text-green-700 space-y-1">
+                  <li>• Duplicados dentro de tu archivo Excel</li>
+                  <li>• SKUs ya existentes en la base de datos</li>
+                  <li>• Validación en tiempo real antes de procesar</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium text-green-800 mb-2">⚡ Resolución Inteligente:</h4>
+                <ul className="text-green-700 space-y-1">
+                  <li>• Omitir productos duplicados</li>
+                  <li>• Reemplazar productos existentes</li>
+                  <li>• Cambiar SKU automáticamente</li>
+                  <li>• Modal elegante para decidir</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Ejemplo visual - Tabla del template */}
           <div className="mt-8 bg-gray-50 p-6 rounded-lg">
             <h3 className="font-bold text-gray-800 mb-4">📋 Ejemplo de Excel Inteligente:</h3>
             <div className="overflow-x-auto">
@@ -709,6 +1259,11 @@ const MassiveUpload = ({ onUploadSuccess }) => {
                 {excelFile && (
                   <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
                     <p className="text-green-800 text-sm">✅ {excelFile.name}</p>
+                    {parsedData && (
+                      <p className="text-green-600 text-xs">
+                        {parsedData.length} productos encontrados
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -747,6 +1302,21 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             </div>
           </div>
 
+          {/* 🔥 NUEVO: Estado de validación SKU */}
+          {isValidatingSKU && (
+            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <FiLoader className="w-5 h-5 text-blue-600 animate-spin" />
+                <div>
+                  <h3 className="font-medium text-blue-800">🔍 Validando SKUs...</h3>
+                  <p className="text-blue-600 text-sm">
+                    Verificando duplicados internos y contra la base de datos
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Validation Errors */}
           {validationErrors.length > 0 && (
             <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
@@ -774,11 +1344,20 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             </button>
             
             <button
-              onClick={() => setStep(3)}
-              disabled={!canProceedToPreview()}
-              className="bg-primary text-white px-6 py-2 rounded-lg hover:bg-red-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+              onClick={prepareForPreview}
+              disabled={!canProceedToPreview() || isValidatingSKU}
+              className="bg-primary text-white px-6 py-2 rounded-lg hover:bg-red-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Revisar Datos →
+              {isValidatingSKU ? (
+                <>
+                  <FiLoader className="w-4 h-4 animate-spin" />
+                  Validando SKUs...
+                </>
+              ) : (
+                <>
+                  🛡️ Validar y Revisar Datos →
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -791,6 +1370,19 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             <FiCheckCircle className="mr-3" />
             Revisar Datos ({parsedData.length} productos)
           </h2>
+
+          {/* 🔥 NUEVO: Indicador de validación SKU completada */}
+          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <FiCheckCircle className="w-5 h-5 text-green-600" />
+              <div>
+                <h3 className="font-medium text-green-800">✅ Validación SKU Completada</h3>
+                <p className="text-green-600 text-sm">
+                  No se encontraron conflictos de SKU. Todos los productos están listos para procesar.
+                </p>
+              </div>
+            </div>
+          </div>
 
           <div className="space-y-6">
             {parsedData.map((product, index) => (
@@ -921,13 +1513,17 @@ const MassiveUpload = ({ onUploadSuccess }) => {
             <div className="space-y-4">
               <div className="bg-green-50 p-4 rounded-lg border border-green-200">
                 <h3 className="font-bold text-green-800 mb-2">✅ Carga Completada</h3>
-                <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="grid md:grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-green-700 font-medium">Productos creados:</span>
                     <span className="ml-2 text-green-800">{processedResults.productsCreated}</span>
                   </div>
                   <div>
-                    <span className="text-green-700 font-medium">Variantes creadas:</span>
+                    <span className="text-green-700 font-medium">Productos actualizados:</span>
+                    <span className="ml-2 text-green-800">{processedResults.productsUpdated}</span>
+                  </div>
+                  <div>
+                    <span className="text-green-700 font-medium">Variantes procesadas:</span>
                     <span className="ml-2 text-green-800">{processedResults.variantsCreated}</span>
                   </div>
                 </div>
@@ -956,6 +1552,15 @@ const MassiveUpload = ({ onUploadSuccess }) => {
           )}
         </div>
       )}
+
+      {/* 🔥 NUEVO: Modal de Resolución de Conflictos */}
+      <ConflictResolutionModal
+        isOpen={showConflictModal}
+        onClose={() => setShowConflictModal(false)}
+        conflicts={skuConflicts}
+        onResolve={handleConflictResolution}
+        isResolving={isResolvingConflicts}
+      />
     </div>
   );
 };

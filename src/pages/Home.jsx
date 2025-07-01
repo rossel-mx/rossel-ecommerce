@@ -1,6 +1,7 @@
 /**
- * @file Home.jsx - REESCRITO DESDE CERO
- * @description Página de inicio con videos funcionando correctamente
+ * @file Home.jsx - ACTUALIZADO
+ * @description Página de inicio con navegación por categorías específicas
+ * UPDATED: Navegación directa a categorías en lugar de búsqueda por texto
  */
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -77,32 +78,32 @@ const Home = () => {
     return () => clearInterval(sliderInterval);
   }, []);
 
-  // Configuración de categorías
+  // ACTUALIZADO: Configuración de categorías con nombres exactos de la BD
   const categories = [
     {
       id: 'bolsas',
       title: 'Bolsas de Mano',
       video: '/categories/bolsas.webm',
       description: 'Elegancia y funcionalidad en cada diseño',
-      searchKeyword: 'bolsa'
+      categoryName: 'Bolsa' // Nombre exacto de la categoría en la BD
     },
     {
       id: 'mochilas', 
       title: 'Mochilas',
       video: '/categories/mochilas.webm',
       description: 'Estilo urbano para tu día a día',
-      searchKeyword: 'mochila'
+      categoryName: 'Mochila' // Nombre exacto de la categoría en la BD
     },
     {
       id: 'carteras',
       title: 'Carteras de Fiesta',
       video: '/categories/carteras.webm', 
       description: 'Sofisticación para ocasiones especiales',
-      searchKeyword: 'cartera'
+      categoryName: 'Cartera' // Nombre exacto de la categoría en la BD
     }
   ];
 
-  // Manejadores de video SIMPLES
+  // Manejadores de video SIMPLES (sin cambios)
   const handleVideoMouseEnter = async (categoryId) => {
     console.log(`LOG: [Video] Mouse ENTER en ${categoryId}`);
     setHoveredCategory(categoryId);
@@ -129,13 +130,19 @@ const Home = () => {
     }
   };
 
-  // Navegación a productos
-  const navigateToProducts = (searchKeyword) => {
-    console.log(`LOG: [Navigation] Navegando a productos con: ${searchKeyword}`);
-    navigate(`/products?search=${encodeURIComponent(searchKeyword)}`);
+  // ACTUALIZADO: Navegación a productos por categoría específica
+  const navigateToCategory = (categoryName) => {
+    console.log(`LOG: [Navigation] Navegando a categoría: ${categoryName}`);
+    
+    // Crear un objeto URLSearchParams para manejar múltiples parámetros
+    const params = new URLSearchParams();
+    params.set('category', categoryName);
+    
+    // Navegar con el parámetro de categoría
+    navigate(`/products?${params.toString()}`);
   };
 
-  // Manejadores del modal
+  // Manejadores del modal (sin cambios)
   const handleOpenModal = (product) => {
     setSelectedProduct(product);
     setIsModalOpen(true);
@@ -146,7 +153,7 @@ const Home = () => {
     setSelectedProduct(null);
   };
   
-  // Lógica de imagen para favorito
+  // Lógica de imagen para favorito (sin cambios)
   const favoriteImageUrl = weeklyFavorite?.image_url || '/rossel-placeholder.webp';
   const isPlaceholderImage = !weeklyFavorite?.image_url || weeklyFavorite.image_url === '/rossel-placeholder.webp';
   const favoriteImageFitClass = isPlaceholderImage ? 'object-contain p-8' : 'object-cover';
@@ -210,7 +217,7 @@ const Home = () => {
                 <div
                   key={category.id}
                   className={`
-                    relative overflow-hidden rounded-2xl shadow-xl
+                    relative overflow-hidden rounded-2xl shadow-xl cursor-pointer
                     transition-all duration-500 ease-out
                     ${isHovered 
                       ? 'scale-110 z-20 shadow-2xl' 
@@ -269,13 +276,13 @@ const Home = () => {
                           {category.description}
                         </p>
 
-                        {/* Botón que aparece solo en hover */}
+                        {/* ACTUALIZADO: Botón que navega por categoría específica */}
                         {isHovered && (
                           <button
-                            onClick={() => navigateToProducts(category.searchKeyword)}
-                            className="mt-4 px-4 py-2 bg-white/20 backdrop-blur-sm text-white rounded-lg border border-white/30 hover:bg-white/30 transition-all duration-200"
+                            onClick={() => navigateToCategory(category.categoryName)}
+                            className="mt-4 px-4 py-2 bg-white/20 backdrop-blur-sm text-white rounded-lg border border-white/30 hover:bg-white/30 transition-all duration-200 font-medium"
                           >
-                            Ver productos
+                            Ver {category.categoryName}s
                           </button>
                         )}
                       </div>
@@ -297,15 +304,15 @@ const Home = () => {
             })}
           </div>
 
-          {/* Indicaciones */}
+          {/* ACTUALIZADO: Indicaciones más claras */}
           <div className="mt-8 text-center">
             <p className="text-sm text-gray-500 italic">
-              ✨ Pasa el mouse para ver el video • 🖱️ Haz click en "Ver productos" para explorar
+              ✨ Pasa el mouse para ver el video • 🏷️ Haz click en "Ver [Categoría]" para explorar esa categoría específica
             </p>
           </div>
         </div>
         
-        {/* FAVORITO DE LA SEMANA */}
+        {/* FAVORITO DE LA SEMANA (sin cambios) */}
         {loading ? (
           <div className="bg-white overflow-hidden">
             <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
@@ -372,7 +379,7 @@ const Home = () => {
           </div>
         )}
         
-        {/* SECCIÓN DE MANIFIESTO */}
+        {/* SECCIÓN DE MANIFIESTO (sin cambios) */}
         <div className="bg-primary text-white">
           <div className="max-w-4xl mx-auto px-4 py-12 text-center">
             <Fade cascade damping={0.2} triggerOnce>
@@ -386,7 +393,7 @@ const Home = () => {
           </div>
         </div>
 
-        {/* RECIÉN LLEGADOS */}
+        {/* RECIÉN LLEGADOS (sin cambios) */}
         <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 text-center">
           <Slide direction="down" triggerOnce>
             <h2 className="text-3xl font-bold text-primary mb-12">Recién Llegados</h2>
@@ -437,7 +444,7 @@ const Home = () => {
         </div>
       </main>
 
-      {/* Modal */}
+      {/* Modal (sin cambios) */}
       {isModalOpen && (
         <ProductDetailModal 
           product={selectedProduct} 

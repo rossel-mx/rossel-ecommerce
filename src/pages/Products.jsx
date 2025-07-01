@@ -3,6 +3,7 @@
  * @description Página principal que muestra la colección de productos.
  * ACTUALIZADO: Ahora incluye búsqueda automática desde parámetros de URL
  * FIXED: Problemas de responsividad completamente solucionados
+ * NEW: Categorías dinámicas obtenidas de la base de datos
  */
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
@@ -80,6 +81,9 @@ const Products = () => {
   const [priceRange, setPriceRange] = useState("all");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
+  // --- NUEVO: Estado para categorías dinámicas ---
+  const [availableCategories, setAvailableCategories] = useState([]);
+
   // --- URL PARAMS PARA BÚSQUEDA AUTOMÁTICA ---
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -105,18 +109,52 @@ const Products = () => {
     fetchProducts();
   }, []);
 
-  // --- APLICAR BÚSQUEDA AUTOMÁTICA DESDE URL ---
+  // --- NUEVO: Extraer categorías dinámicamente cuando se cargan los productos ---
+  useEffect(() => {
+    if (products.length > 0) {
+      console.log("LOG: [Products] Extrayendo categorías únicas de los productos...");
+      
+      // Extraer categorías únicas y filtrar valores nulos/vacíos
+      const uniqueCategories = [...new Set(
+        products
+          .map(product => product.category)
+          .filter(category => category && category.trim() !== "")
+      )].sort();
+      
+      console.log("LOG: [Products] Categorías encontradas:", uniqueCategories);
+      
+      // Agregar "all" al inicio para mostrar todos los productos
+      setAvailableCategories(['all', ...uniqueCategories]);
+    }
+  }, [products]);
+
+  // --- APLICAR BÚSQUEDA Y CATEGORÍA AUTOMÁTICA DESDE URL ---
   useEffect(() => {
     const urlSearch = searchParams.get('search');
-    console.log(`LOG: [Products] Verificando parámetro de búsqueda desde URL:`, urlSearch);
-    console.log(`LOG: [Products] Estado actual de searchTerm antes:`, searchTerm);
+    const urlCategory = searchParams.get('category');
     
+    console.log(`LOG: [Products] Verificando parámetros desde URL - search:`, urlSearch, 'category:', urlCategory);
+    console.log(`LOG: [Products] Estado actual - searchTerm:`, searchTerm, 'selectedCategory:', selectedCategory);
+    
+    // Aplicar búsqueda si existe
     if (urlSearch && urlSearch !== searchTerm) {
       console.log(`LOG: [Products] Aplicando búsqueda automática: "${urlSearch}"`);
       setSearchTerm(urlSearch);
-      console.log(`LOG: [Products] setSearchTerm ejecutado con: "${urlSearch}"`);
     }
-  }, [searchParams, searchTerm]);
+    
+    // Aplicar categoría si existe y es válida
+    if (urlCategory && urlCategory !== selectedCategory) {
+      // Verificar que la categoría existe en nuestras categorías disponibles
+      if (availableCategories.includes(urlCategory)) {
+        console.log(`LOG: [Products] Aplicando filtro de categoría automático: "${urlCategory}"`);
+        setSelectedCategory(urlCategory);
+        // También abrir los filtros para que el usuario vea qué está activo
+        setShowFilters(true);
+      } else {
+        console.log(`LOG: [Products] Categoría "${urlCategory}" no encontrada en categorías disponibles:`, availableCategories);
+      }
+    }
+  }, [searchParams, searchTerm, selectedCategory, availableCategories]);
 
   // Lógica de filtrado y ordenamiento mejorada
   const filteredAndSortedProducts = useMemo(() => {
@@ -129,24 +167,29 @@ const Products = () => {
       console.log("LOG: [Products] Aplicando filtro de búsqueda:", searchTerm);
       processedProducts = processedProducts.filter(p => 
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        p.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category?.toLowerCase().includes(searchTerm.toLowerCase())
       );
       console.log("LOG: [Products] Productos después del filtro:", processedProducts.length);
     }
 
-    // Filtro por categoría (si tienes categorías)
+    // Filtro por categoría
     if (selectedCategory !== "all") {
+      console.log("LOG: [Products] Aplicando filtro de categoría:", selectedCategory);
       processedProducts = processedProducts.filter(p => 
         p.category === selectedCategory
       );
+      console.log("LOG: [Products] Productos después del filtro de categoría:", processedProducts.length);
     }
 
     // Filtro por rango de precio
     if (priceRange !== "all") {
+      console.log("LOG: [Products] Aplicando filtro de precio:", priceRange);
       const [min, max] = priceRange.split("-").map(Number);
       processedProducts = processedProducts.filter(p => 
         p.price_menudeo >= min && (max ? p.price_menudeo <= max : true)
       );
+      console.log("LOG: [Products] Productos después del filtro de precio:", processedProducts.length);
     }
 
     // Ordenamiento
@@ -186,6 +229,7 @@ const Products = () => {
 
   const clearAllFilters = () => {
     console.log("LOG: [Products] Limpiando todo y navegando");
+    // Limpiar todos los parámetros de URL
     navigate("/products", { replace: true });
     setTimeout(() => {
       setSearchTerm("");
@@ -196,7 +240,14 @@ const Products = () => {
     }, 10);
   };
 
-  const categories = ["all", "Bolsa", "Mochila", "Cartera"];
+  // --- NUEVO: Función para obtener el nombre de categoría formateado ---
+  const getCategoryDisplayName = (category) => {
+    if (category === "all") return "Todas";
+    
+    // Capitalizar primera letra y mantener el resto como está
+    return category.charAt(0).toUpperCase() + category.slice(1);
+  };
+
   const priceRanges = [
     { value: "all", label: "Todos" },
     { value: "0-500", label: "$0-$500" },
@@ -359,6 +410,11 @@ const Products = () => {
                 >
                   <FiFilter className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                   {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+                  {availableCategories.length > 1 && (
+                    <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
+                      {availableCategories.length - 1}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -367,20 +423,37 @@ const Products = () => {
                 <div className="mt-4 sm:mt-6 lg:mt-8 pt-4 sm:pt-6 lg:pt-8 border-t border-gray-200 animate-slide-down">
                   <div className="grid grid-cols-1 gap-6 sm:gap-8">
                     
-                    {/* Filtros por categoría */}
+                    {/* Filtros por categoría - AHORA DINÁMICOS */}
                     <div>
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">Categorías</h3>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">
+                        Categorías 
+                        {availableCategories.length > 1 && (
+                          <span className="text-sm font-normal text-gray-500 ml-2">
+                            ({availableCategories.length - 1} disponibles)
+                          </span>
+                        )}
+                      </h3>
                       <div className="flex flex-wrap gap-2 sm:gap-3">
-                        {categories.map((category) => (
+                        {availableCategories.map((category) => (
                           <FilterChip
                             key={category}
                             active={selectedCategory === category}
-                            onClick={() => setSelectedCategory(category)}
+                            onClick={() => {
+                              console.log("LOG: [Products] Seleccionando categoría:", category);
+                              setSelectedCategory(category);
+                            }}
                           >
-                            {category === "all" ? "Todas" : category.charAt(0).toUpperCase() + category.slice(1)}
+                            {getCategoryDisplayName(category)}
                           </FilterChip>
                         ))}
                       </div>
+                      
+                      {/* Mostrar mensaje si no hay categorías */}
+                      {availableCategories.length <= 1 && (
+                        <p className="text-sm text-gray-500 italic">
+                          No hay categorías disponibles aún.
+                        </p>
+                      )}
                     </div>
 
                     {/* Filtros por precio */}
@@ -421,11 +494,25 @@ const Products = () => {
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
                   {filteredAndSortedProducts.length} productos
                 </h2>
-                {searchTerm && (
-                  <span className="inline-block px-2 sm:px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs sm:text-sm font-medium">
-                    para "{searchTerm}"
-                  </span>
-                )}
+                
+                {/* Mostrar filtros activos */}
+                <div className="flex flex-wrap gap-2">
+                  {searchTerm && (
+                    <span className="inline-block px-2 sm:px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs sm:text-sm font-medium">
+                      para "{searchTerm}"
+                    </span>
+                  )}
+                  {selectedCategory !== "all" && (
+                    <span className="inline-block px-2 sm:px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs sm:text-sm font-medium">
+                      {getCategoryDisplayName(selectedCategory)}
+                    </span>
+                  )}
+                  {priceRange !== "all" && (
+                    <span className="inline-block px-2 sm:px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-medium">
+                      {priceRanges.find(p => p.value === priceRange)?.label}
+                    </span>
+                  )}
+                </div>
               </div>
               
               {filteredAndSortedProducts.length > 0 && (

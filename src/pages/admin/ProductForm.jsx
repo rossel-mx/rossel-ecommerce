@@ -806,18 +806,20 @@ const ProductForm = ({ onFormSubmit, editingProduct }) => {
   };
 
   // --- 9. 🔥 NUEVO: FUNCIÓN PARA NAVEGAR AL PRODUCTO EN CONFLICTO ---
-  const handleNavigateToConflict = () => {
-    if (skuValidation.conflictProduct && onFormSubmit) {
-      console.log(`LOG: [ProductForm] Navegando al producto en conflicto:`, skuValidation.conflictProduct);
-      toast.info(`Cargando producto: ${skuValidation.conflictProduct.name}`);
-      
-      // Emitir evento para que el padre maneje la navegación
-      // Necesitarías pasar esta función desde ProductsTab
-      window.dispatchEvent(new CustomEvent('editProductBySku', { 
-        detail: { productId: skuValidation.conflictProduct.id } 
-      }));
-    }
-  };
+// 🔥 REEMPLAZAR ESTA FUNCIÓN:
+const handleNavigateToConflict = () => {
+  if (skuValidation.conflictProduct && onFormSubmit) {
+    console.log(`LOG: [ProductForm] Navegando al producto en conflicto:`, skuValidation.conflictProduct);
+    
+    // 🔥 CAMBIAR: toast.info NO EXISTE, usar toast.success o toast
+    toast.success(`🔍 Cargando producto: ${skuValidation.conflictProduct.name}`);
+    
+    // Emitir evento para que el padre maneje la navegación
+    window.dispatchEvent(new CustomEvent('editProductBySku', { 
+      detail: { productId: skuValidation.conflictProduct.id } 
+    }));
+  }
+};
 
   // --- 10. LÓGICA DE ENVÍO Y GUARDADO ---
 

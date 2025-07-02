@@ -4,6 +4,7 @@
  * 1. Carga Individual - Para productos ocasionales (con transformaciones Cloudinary)
  * 2. Carga Masiva - Para setup inicial (sin transformaciones, 0 tokens)
  * ✅ ACTUALIZADO: Modal moderno y elegante para eliminación de productos.
+ * 🔥 NUEVO: Navegación automática desde validación SKU en ProductForm
  */
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../services/supabaseClient";
@@ -11,7 +12,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { FiUser, FiPackage, FiTrash2, FiAlertTriangle, FiImage, FiLayers } from 'react-icons/fi';
 import ProductList from "./ProductList";
 import ProductForm from "./ProductForm";
-import MassiveUpload from "./MassiveUpload";
+import MassiveUpload from "./MassiveUpload/MassiveUpload";
 
 const ProductsTab = () => {
   // --- ESTADOS ---
@@ -62,6 +63,22 @@ const ProductsTab = () => {
       fetchProductsWithVariants();
     };
 
+    // 🔥 NUEVO: Listener para navegación desde validación SKU
+    const handleEditBySku = (event) => {
+      const productId = event.detail.productId;
+      console.log(`LOG: [ProductsTab] Navegación SKU solicitada para producto ID: ${productId}`);
+      
+      const product = products.find(p => p.id === productId);
+      if (product) {
+        console.log(`LOG: [ProductsTab] Producto encontrado: ${product.name}, iniciando edición...`);
+        handleEdit(product);
+        toast.success(`🔍 Navegando a: ${product.name}`);
+      } else {
+        console.error(`ERROR: [ProductsTab] Producto con ID ${productId} no encontrado`);
+        toast.error('Producto no encontrado en la lista actual');
+      }
+    };
+
     const channel = supabase.channel('products-variants-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, handleDbChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_variants' }, handleDbChange)
@@ -70,12 +87,17 @@ const ProductsTab = () => {
           console.log('LOG: [ProductsTab] ¡Conectado al canal de Realtime!');
         }
       });
+
+    // 🔥 NUEVO: Agregar listener del evento personalizado
+    window.addEventListener('editProductBySku', handleEditBySku);
       
     return () => {
-      console.log("LOG: [ProductsTab] Desmontando. Limpiando suscripción en tiempo real.");
+      console.log("LOG: [ProductsTab] Desmontando. Limpiando suscripciones...");
       supabase.removeChannel(channel);
+      // 🔥 NUEVO: Limpiar listener del evento personalizado
+      window.removeEventListener('editProductBySku', handleEditBySku);
     };
-  }, [fetchProductsWithVariants]);
+  }, [fetchProductsWithVariants, products]); // 🔥 IMPORTANTE: Agregar 'products' a dependencies
 
   // --- MANEJADORES DE EVENTOS ---
 

@@ -32,7 +32,7 @@ import {
 } from 'react-icons/fi';
 
 // Hooks y utilidades personalizadas
-import { useSKUValidation } from './hooks/useSKUValidation';
+import { useSKUValidation } from './Hooks/useSKUValidation';
 import { 
   generateExcelTemplate, 
   parseExcelFile, 

@@ -40,7 +40,7 @@ const Footer = () => {
             <ul className="mt-4 space-y-2">
               <li><Link to="/products" className="text-gray-400 hover:text-white transition">Bolsas</Link></li>
               <li><Link to="/products" className="text-gray-400 hover:text-white transition">Mochilas</Link></li>
-              <li><Link to="/products" className="text-gray-400 hover:text-white transition">Accesorios</Link></li>
+              <li><Link to="/products" className="text-gray-400 hover:text-white transition">Carteras</Link></li>
               <li><Link to="/products" className="text-gray-400 hover:text-white transition">Novedades</Link></li>
             </ul>
           </div>

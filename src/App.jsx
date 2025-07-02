@@ -3,6 +3,7 @@
  * ------------------------------------------------
  * Este es el componente raíz que define la estructura de las rutas de toda la aplicación.
  * Incluye la nueva ruta para el restablecimiento de contraseña.
+ * 🔥 NUEVO: ScrollToTop para navegación suave entre páginas
  */
 import { Routes, Route, useLocation } from "react-router-dom";
 
@@ -10,6 +11,7 @@ import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ProtectedRoute from "./components/ProtectedRoute";
+import ScrollToTop from "./components/ScrollToTop"; // 🔥 NUEVA IMPORTACIÓN
 
 // --- Importación de Páginas Principales ---
 import Home from "./pages/Home";
@@ -17,7 +19,7 @@ import Products from "./pages/Products";
 import Cart from "./pages/Cart";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import ResetPassword from "./pages/ResetPassword"; // 🔑 NUEVA IMPORTACIÓN
+import ResetPassword from "./pages/ResetPassword";
 import CheckoutPage from "./pages/CheckoutPage";
 import AdminPanel from "./pages/AdminPanel";
 
@@ -48,6 +50,9 @@ function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-lightpink">
+      {/* 🔥 NUEVO: ScrollToTop - Debe ir al principio para capturar todos los cambios de ruta */}
+      <ScrollToTop />
+      
       <Navbar />
       <main className={`flex-grow ${!isHomePage ? 'pt-20' : ''}`}>
         <Routes>
@@ -59,7 +64,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           
-          {/* --- 🔑 NUEVA RUTA PARA RESET PASSWORD --- */}
+          {/* --- 🔑 RUTA PARA RESET PASSWORD --- */}
           <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* --- Rutas para las páginas informativas --- */}

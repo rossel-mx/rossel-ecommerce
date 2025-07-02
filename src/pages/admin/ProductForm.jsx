@@ -1112,7 +1112,7 @@ const handleNavigateToConflict = () => {
             className="ml-2 px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs rounded-md border border-red-300 transition-colors flex items-center gap-1"
           >
             <FiEdit3 className="w-3 h-3" />
-            Ver "{skuValidation.conflictProduct.name}"
+            Editar "{skuValidation.conflictProduct.name}"
           </button>
         )}
       </div>

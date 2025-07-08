@@ -31,13 +31,32 @@ const Home = () => {
   const [hoveredCategory, setHoveredCategory] = useState(null);
   const [videoRefs] = useState({});
   
+  // Estados para UX mejorada
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState({});
+  const [sliderPaused, setSliderPaused] = useState(false);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [visibleVideos, setVisibleVideos] = useState(new Set());
+  
   const navigate = useNavigate();
+
+  // Detectar dispositivos táctiles
+  useEffect(() => {
+    const checkTouchDevice = () => {
+      setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    };
+    
+    checkTouchDevice();
+    window.addEventListener('resize', checkTouchDevice);
+    
+    return () => window.removeEventListener('resize', checkTouchDevice);
+  }, []);
 
   // Cargar datos
   useEffect(() => {
-    const sliderInterval = setInterval(() => {
+    const sliderInterval = !sliderPaused ? setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
-    }, 4000);
+    }, 6000) : null;
 
     const fetchHomeData = async () => {
       setLoading(true);
@@ -75,8 +94,10 @@ const Home = () => {
     };
 
     fetchHomeData();
-    return () => clearInterval(sliderInterval);
-  }, []);
+    return () => {
+      if (sliderInterval) clearInterval(sliderInterval);
+    };
+  }, [sliderPaused]);
 
   // ACTUALIZADO: Configuración de categorías con nombres exactos de la BD
   const categories = [
@@ -103,31 +124,71 @@ const Home = () => {
     }
   ];
 
-  // Manejadores de video SIMPLES (sin cambios)
-  const handleVideoMouseEnter = async (categoryId) => {
-    console.log(`LOG: [Video] Mouse ENTER en ${categoryId}`);
-    setHoveredCategory(categoryId);
+  // Manejadores de video mejorados
+  const handleVideoInteraction = async (categoryId, action) => {
     const video = videoRefs[categoryId];
-    if (video) {
-      try {
+    if (!video) return;
+
+    try {
+      if (action === 'play') {
+        setHoveredCategory(categoryId);
+        setVideoPlaying(prev => ({ ...prev, [categoryId]: true }));
         video.currentTime = 0;
         await video.play();
         console.log(`LOG: [Video] ${categoryId} INICIADO correctamente`);
-      } catch (error) {
-        console.log(`ERROR: [Video] ${categoryId} no pudo reproducirse:`, error);
+      } else {
+        setHoveredCategory(null);
+        setVideoPlaying(prev => ({ ...prev, [categoryId]: false }));
+        video.pause();
+        video.currentTime = 0;
+        console.log(`LOG: [Video] ${categoryId} PAUSADO correctamente`);
       }
+    } catch (error) {
+      console.log(`ERROR: [Video] ${categoryId} no pudo reproducirse:`, error);
+    }
+  };
+
+  const handleVideoMouseEnter = (categoryId) => {
+    if (!isTouchDevice) {
+      handleVideoInteraction(categoryId, 'play');
     }
   };
 
   const handleVideoMouseLeave = (categoryId) => {
-    console.log(`LOG: [Video] Mouse LEAVE en ${categoryId}`);
-    setHoveredCategory(null);
-    const video = videoRefs[categoryId];
-    if (video) {
-      video.pause();
-      video.currentTime = 0;
-      console.log(`LOG: [Video] ${categoryId} PAUSADO correctamente`);
+    if (!isTouchDevice) {
+      handleVideoInteraction(categoryId, 'pause');
     }
+  };
+
+  const handleVideoClick = (categoryId) => {
+    if (isTouchDevice) {
+      const isPlaying = videoPlaying[categoryId];
+      handleVideoInteraction(categoryId, isPlaying ? 'pause' : 'play');
+    }
+  };
+
+  const handleKeyDown = (event, categoryId) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleVideoClick(categoryId);
+    }
+  };
+
+  // Controles del slider
+  const nextSlide = () => {
+    setCurrentSlide((prev) => (prev + 1) % slides.length);
+  };
+
+  const prevSlide = () => {
+    setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
+  };
+
+  const toggleSliderPause = () => {
+    setSliderPaused(!sliderPaused);
+  };
+
+  const goToSlide = (index) => {
+    setCurrentSlide(index);
   };
 
   // ACTUALIZADO: Navegación a productos por categoría específica
@@ -191,11 +252,66 @@ const Home = () => {
             <Fade direction="up" delay={500} triggerOnce>
               <Link 
                 to="/products" 
-                className="mt-8 inline-block bg-primary text-white px-8 py-3 rounded-lg text-lg font-bold hover:bg-red-700 transition-transform duration-300 hover:scale-105"
+                className="mt-8 inline-block bg-primary text-white px-8 py-3 rounded-lg text-lg font-bold hover:bg-red-700 focus:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-500/50 transition-transform duration-300 hover:scale-105"
+                aria-label="Explorar toda la colección de productos"
               >
                 Explorar la Colección
               </Link>
             </Fade>
+          </div>
+          
+          {/* Controles del slider */}
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20">
+            <div className="flex items-center space-x-2 bg-black/20 backdrop-blur-sm rounded-full px-4 py-2">
+              <button
+                onClick={prevSlide}
+                className="p-2 text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 rounded-full"
+                aria-label="Imagen anterior"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              
+              <div className="flex space-x-1">
+                {slides.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => goToSlide(index)}
+                    className={`w-2 h-2 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-white/50 ${
+                      index === currentSlide ? 'bg-white' : 'bg-white/50'
+                    }`}
+                    aria-label={`Ir a imagen ${index + 1}`}
+                  />
+                ))}
+              </div>
+              
+              <button
+                onClick={toggleSliderPause}
+                className="p-2 text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 rounded-full"
+                aria-label={sliderPaused ? 'Reanudar presentación' : 'Pausar presentación'}
+              >
+                {sliderPaused ? (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                  </svg>
+                )}
+              </button>
+              
+              <button
+                onClick={nextSlide}
+                className="p-2 text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 rounded-full"
+                aria-label="Siguiente imagen"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
           </div>
         </section>
 
@@ -217,7 +333,7 @@ const Home = () => {
                 <div
                   key={category.id}
                   className={`
-                    relative overflow-hidden rounded-2xl shadow-xl cursor-pointer
+                    relative overflow-hidden rounded-2xl shadow-xl cursor-pointer focus:outline-none focus:ring-4 focus:ring-primary/50
                     transition-all duration-500 ease-out
                     ${isHovered 
                       ? 'scale-110 z-20 shadow-2xl' 
@@ -228,6 +344,11 @@ const Home = () => {
                   `}
                   onMouseEnter={() => handleVideoMouseEnter(category.id)}
                   onMouseLeave={() => handleVideoMouseLeave(category.id)}
+                  onClick={() => handleVideoClick(category.id)}
+                  onKeyDown={(e) => handleKeyDown(e, category.id)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Explorar ${category.title}. ${isTouchDevice ? 'Toca para ver el video' : 'Pasa el mouse para ver el video'}`}
                 >
                   {/* Contenedor del video */}
                   <div className="relative w-full aspect-[4/3] overflow-hidden">
@@ -241,10 +362,13 @@ const Home = () => {
                       muted
                       loop
                       playsInline
-                      preload="auto"
+                      preload="none"
+                      poster={`/categories/${category.id}-poster.jpg`}
+                      aria-label={`Video de ${category.title}`}
                     >
                       <source src={category.video} type="video/webm" />
-                      Tu navegador no soporta videos HTML5.
+                      <source src={category.video.replace('.webm', '.mp4')} type="video/mp4" />
+                      <img src={`/categories/${category.id}-poster.jpg`} alt={category.title} className="w-full h-full object-cover" />
                     </video>
 
                     {/* Overlay de gradiente */}
@@ -277,22 +401,37 @@ const Home = () => {
                         </p>
 
                         {/* ACTUALIZADO: Botón que navega por categoría específica */}
-                        {isHovered && (
+                        {(isHovered || (isTouchDevice && videoPlaying[category.id])) && (
                           <button
-                            onClick={() => navigateToCategory(category.categoryName)}
-                            className="mt-4 px-4 py-2 bg-white/20 backdrop-blur-sm text-white rounded-lg border border-white/30 hover:bg-white/30 transition-all duration-200 font-medium"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigateToCategory(category.categoryName);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                navigateToCategory(category.categoryName);
+                              }
+                            }}
+                            className="mt-4 px-4 py-2 bg-white/20 backdrop-blur-sm text-white rounded-lg border border-white/30 hover:bg-white/30 focus:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 transition-all duration-200 font-medium"
+                            aria-label={`Explorar productos de ${category.title}`}
                           >
-                            Ver {category.categoryName}s
+                            Explorar {category.title}
                           </button>
                         )}
                       </div>
 
-                      {/* Indicador de play */}
-                      {isHovered && (
+                      {/* Indicador de play/pause */}
+                      {(isHovered || (isTouchDevice && !videoPlaying[category.id])) && (
                         <div className="absolute top-4 right-4">
                           <div className="bg-white/20 backdrop-blur-sm rounded-full p-2">
-                            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 5v14l11-7z"/>
+                            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                              {videoPlaying[category.id] ? (
+                                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                              ) : (
+                                <path d="M8 5v14l11-7z"/>
+                              )}
                             </svg>
                           </div>
                         </div>
@@ -304,10 +443,13 @@ const Home = () => {
             })}
           </div>
 
-          {/* ACTUALIZADO: Indicaciones más claras */}
+          {/* ACTUALIZADO: Indicaciones adaptativas */}
           <div className="mt-8 text-center">
             <p className="text-sm text-gray-500 italic">
-              ✨ Pasa el mouse para ver el video • 🏷️ Haz click en "Ver [Categoría]" para explorar esa categoría específica
+              {isTouchDevice 
+                ? "👆 Toca para ver el video y explorar • 🏷️ Usa 'Explorar' para ver productos" 
+                : "✨ Pasa el mouse para ver el video • 🏷️ Haz click en 'Explorar' para ver productos"
+              }
             </p>
           </div>
         </div>
@@ -330,12 +472,19 @@ const Home = () => {
           <div className="bg-white overflow-hidden">
             <div className="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 text-center">
               <div className="text-red-500 mb-4">
-                <svg className="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">Error al cargar contenido</h3>
-              <p className="text-gray-600">{error}</p>
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">Oops, algo salió mal</h3>
+              <p className="text-gray-600 mb-4">No pudimos cargar el contenido en este momento. Por favor, inténtalo de nuevo.</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="bg-primary text-white px-6 py-2 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-500/50 transition-all"
+                aria-label="Recargar página"
+              >
+                Intentar de nuevo
+              </button>
             </div>
           </div>
         ) : weeklyFavorite && (
@@ -369,7 +518,8 @@ const Home = () => {
                   </div>
                   <button 
                     onClick={() => handleOpenModal(weeklyFavorite)} 
-                    className="mt-8 bg-primary text-white px-8 py-3 rounded-lg text-lg font-bold hover:bg-red-700 transition-transform duration-300 hover:scale-105"
+                    className="mt-8 bg-primary text-white px-8 py-3 rounded-lg text-lg font-bold hover:bg-red-700 focus:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-500/50 transition-transform duration-300 hover:scale-105"
+                    aria-label={`Ver detalles de ${weeklyFavorite.name}`}
                   >
                     Ver Detalles
                   </button>
@@ -436,7 +586,8 @@ const Home = () => {
           <Fade direction="up" triggerOnce>
             <Link 
               to="/products" 
-              className="mt-12 inline-block bg-primary text-white px-6 py-3 rounded-lg hover:bg-red-700 transition"
+              className="mt-12 inline-block bg-primary text-white px-6 py-3 rounded-lg hover:bg-red-700 focus:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-500/50 transition"
+              aria-label="Ver toda la colección de productos"
             >
               Ver Toda la Colección
             </Link>

@@ -371,7 +371,7 @@ const Home = () => {
                       <img src={`/categories/${category.id}-poster.jpg`} alt={category.title} className="w-full h-full object-cover" />
                     </video>
 
-                    {/* Overlay de gradiente*/}
+                    {/* Overlay de gradiente */}
                     <div className={`
                       absolute inset-0 transition-all duration-500
                       ${isHovered 
